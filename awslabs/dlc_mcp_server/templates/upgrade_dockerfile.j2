@@ -1,0 +1,41 @@
+# Upgrade Dockerfile from {{ current_image }} to {{ target_image }}
+FROM {{ target_image }} as target
+
+FROM {{ current_image }} as source
+
+{% if preserve_custom_files %}
+# Create temporary directory for files to preserve
+RUN mkdir -p /tmp/preserve
+
+{% for file_path in preserve_custom_files %}
+# Copy {{ file_path }} to preserve
+RUN if [ -e {{ file_path }} ]; then cp -r {{ file_path }} /tmp/preserve/; fi
+{% endfor %}
+{% endif %}
+
+# Start with the target image
+FROM {{ target_image }}
+
+{% if preserve_custom_files %}
+# Copy preserved files from source image
+COPY --from=source /tmp/preserve /tmp/preserve
+
+{% for file_path in preserve_custom_files %}
+# Restore {{ file_path }}
+RUN if [ -e /tmp/preserve/{{ file_path | basename }} ]; then mkdir -p {{ file_path | dirname }} && cp -r /tmp/preserve/{{ file_path | basename }} {{ file_path }}; fi
+{% endfor %}
+
+# Clean up temporary directory
+RUN rm -rf /tmp/preserve
+{% endif %}
+
+{% if additional_packages %}
+# Install additional packages
+RUN pip install --no-cache-dir \
+    {% for package in additional_packages %}
+    {{ package }}{% if not loop.last %} \{% endif %}
+    {% endfor %}
+{% endif %}
+
+# Image upgraded successfully
+WORKDIR /opt/ml

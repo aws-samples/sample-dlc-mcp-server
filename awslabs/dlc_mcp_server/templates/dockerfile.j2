@@ -1,0 +1,38 @@
+FROM {{ base_image }}
+
+{% if environment_variables %}
+# Set environment variables
+{% for key, value in environment_variables.items() %}
+ENV {{ key }}={{ value }}
+{% endfor %}
+{% endif %}
+
+{% if packages %}
+# Install system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    {% for package in packages %}
+    {{ package }}{% if not loop.last %} \{% endif %}
+    {% endfor %} \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+{% endif %}
+
+{% if python_packages %}
+# Install Python packages
+RUN pip install --no-cache-dir \
+    {% for package in python_packages %}
+    {{ package }}{% if not loop.last %} \{% endif %}
+    {% endfor %}
+{% endif %}
+
+{% if custom_commands %}
+# Custom commands
+{% for command in custom_commands %}
+{{ command }}
+{% endfor %}
+{% endif %}
+
+{% if not custom_workdir %}
+# Set working directory
+WORKDIR /opt/ml
+{% endif %}
