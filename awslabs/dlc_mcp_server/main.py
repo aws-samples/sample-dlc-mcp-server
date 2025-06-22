@@ -14,7 +14,8 @@ from awslabs.dlc_mcp_server.modules import (
     deployment,
     troubleshooting,
     upgrade,
-    best_practices
+    best_practices,
+    containers,
 )
 from awslabs.dlc_mcp_server.utils.config import get_config
 from awslabs.dlc_mcp_server.utils.security import (
@@ -24,7 +25,7 @@ from awslabs.dlc_mcp_server.utils.security import (
 )
 
 # Configure logging
-log_level = os.environ.get("FASTMCP_LOG_LEVEL", "INFO")
+log_level = os.environ.get("FASTMCP_LOG_LEVEL", "ERROR")
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 log_file = os.environ.get("FASTMCP_LOG_FILE")
 
@@ -58,9 +59,7 @@ config = get_config()
 # Create the MCP server
 mcp = FastMCP(
     name="AWS Deep Learning Containers MCP Server",
-    description=(
-        "A server for building, customizing, and deploying AWS Deep Learning Containers"
-    ),
+    description=("A server for building, customizing, and deploying AWS Deep Learning Containers"),
     version="0.1.0",
     instructions="""Use this server to build, customize, and deploy AWS Deep Learning Containers (DLC).
 
@@ -106,25 +105,25 @@ image_building.build_custom_dlc_image = secure_tool(
     config, PERMISSION_WRITE, "build_custom_dlc_image"
 )(image_building.build_custom_dlc_image)
 
-deployment.deploy_to_sagemaker = secure_tool(
-    config, PERMISSION_WRITE, "deploy_to_sagemaker"
-)(deployment.deploy_to_sagemaker)
+deployment.deploy_to_sagemaker = secure_tool(config, PERMISSION_WRITE, "deploy_to_sagemaker")(
+    deployment.deploy_to_sagemaker
+)
 
-deployment.deploy_to_ecs = secure_tool(
-    config, PERMISSION_WRITE, "deploy_to_ecs"
-)(deployment.deploy_to_ecs)
+deployment.deploy_to_ecs = secure_tool(config, PERMISSION_WRITE, "deploy_to_ecs")(
+    deployment.deploy_to_ecs
+)
 
-deployment.deploy_to_ec2 = secure_tool(
-    config, PERMISSION_WRITE, "deploy_to_ec2"
-)(deployment.deploy_to_ec2)
+deployment.deploy_to_ec2 = secure_tool(config, PERMISSION_WRITE, "deploy_to_ec2")(
+    deployment.deploy_to_ec2
+)
 
-deployment.deploy_to_eks = secure_tool(
-    config, PERMISSION_WRITE, "deploy_to_eks"
-)(deployment.deploy_to_eks)
+deployment.deploy_to_eks = secure_tool(config, PERMISSION_WRITE, "deploy_to_eks")(
+    deployment.deploy_to_eks
+)
 
-upgrade.upgrade_dlc_image = secure_tool(
-    config, PERMISSION_WRITE, "upgrade_dlc_image"
-)(upgrade.upgrade_dlc_image)
+upgrade.upgrade_dlc_image = secure_tool(config, PERMISSION_WRITE, "upgrade_dlc_image")(
+    upgrade.upgrade_dlc_image
+)
 
 # Register all modules
 image_building.register_module(mcp)
@@ -132,6 +131,7 @@ deployment.register_module(mcp)
 troubleshooting.register_module(mcp)
 upgrade.register_module(mcp)
 best_practices.register_module(mcp)
+containers.register_module(mcp)
 
 
 def main() -> None:
