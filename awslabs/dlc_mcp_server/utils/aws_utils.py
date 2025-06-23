@@ -2,20 +2,26 @@
 
 import logging
 import boto3
+import os
+import subprocess
 from typing import Dict, Any, List, Optional
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from awslabs.dlc_mcp_server.utils.config import get_aws_region
 
 logger = logging.getLogger(__name__)
 
+# AWS DLC Production Account ID
+AWS_DLC_ACCOUNT_ID = "763104351884"
+
 
 def get_ecr_client(region: Optional[str] = None) -> Any:
     """
     Get an ECR client.
-    
+
     Args:
         region (Optional[str]): AWS region
-        
+
     Returns:
         Any: ECR client
     """
@@ -26,10 +32,10 @@ def get_ecr_client(region: Optional[str] = None) -> Any:
 def get_sagemaker_client(region: Optional[str] = None) -> Any:
     """
     Get a SageMaker client.
-    
+
     Args:
         region (Optional[str]): AWS region
-        
+
     Returns:
         Any: SageMaker client
     """
@@ -40,10 +46,10 @@ def get_sagemaker_client(region: Optional[str] = None) -> Any:
 def get_ecs_client(region: Optional[str] = None) -> Any:
     """
     Get an ECS client.
-    
+
     Args:
         region (Optional[str]): AWS region
-        
+
     Returns:
         Any: ECS client
     """
@@ -54,10 +60,10 @@ def get_ecs_client(region: Optional[str] = None) -> Any:
 def get_eks_client(region: Optional[str] = None) -> Any:
     """
     Get an EKS client.
-    
+
     Args:
         region (Optional[str]): AWS region
-        
+
     Returns:
         Any: EKS client
     """
@@ -68,10 +74,10 @@ def get_eks_client(region: Optional[str] = None) -> Any:
 def get_ec2_client(region: Optional[str] = None) -> Any:
     """
     Get an EC2 client.
-    
+
     Args:
         region (Optional[str]): AWS region
-        
+
     Returns:
         Any: EC2 client
     """
@@ -82,11 +88,11 @@ def get_ec2_client(region: Optional[str] = None) -> Any:
 def create_ecr_repository(repository_name: str, region: Optional[str] = None) -> Dict[str, Any]:
     """
     Create an ECR repository.
-    
+
     Args:
         repository_name (str): Repository name
         region (Optional[str]): AWS region
-        
+
     Returns:
         Dict[str, Any]: Repository details
     """
@@ -95,88 +101,293 @@ def create_ecr_repository(repository_name: str, region: Optional[str] = None) ->
         response = ecr.create_repository(
             repositoryName=repository_name,
             imageScanningConfiguration={"scanOnPush": True},
-            encryptionConfiguration={"encryptionType": "AES256"}
+            encryptionConfiguration={"encryptionType": "AES256"},
         )
-        
+
         return {
             "success": True,
             "repository_uri": response["repository"]["repositoryUri"],
-            "repository_name": repository_name
-        }
-    except ecr.exceptions.RepositoryAlreadyExistsException:
-        # Repository already exists, get its URI
-        response = ecr.describe_repositories(repositoryNames=[repository_name])
-        return {
-            "success": True,
-            "repository_uri": response["repositories"][0]["repositoryUri"],
             "repository_name": repository_name,
-            "note": "Repository already exists"
         }
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "RepositoryAlreadyExistsException":
+            # Repository already exists, get its URI
+            try:
+                response = ecr.describe_repositories(repositoryNames=[repository_name])
+                return {
+                    "success": True,
+                    "repository_uri": response["repositories"][0]["repositoryUri"],
+                    "repository_name": repository_name,
+                    "note": "Repository already exists",
+                }
+            except Exception as describe_error:
+                logger.error(
+                    f"Failed to describe existing repository {repository_name}: {describe_error}"
+                )
+                return {"success": False, "error": str(describe_error)}
+        else:
+            logger.error(f"Failed to create ECR repository {repository_name}: {e}")
+            return {"success": False, "error": str(e)}
     except Exception as e:
         logger.error(f"Failed to create ECR repository {repository_name}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
-def get_ecr_login_command(region: Optional[str] = None) -> Dict[str, Any]:
+def get_ecr_login_command(region: Optional[str] = None, prod: bool = False) -> Dict[str, Any]:
     """
-    Get ECR login command.
-    
+    Get ECR login command and perform Docker login.
+
     Args:
         region (Optional[str]): AWS region
-        
+        prod (bool): Whether to authenticate with AWS DLC production account
+
     Returns:
         Dict[str, Any]: Login command details
     """
     try:
+        region = region or get_aws_region()
         ecr = get_ecr_client(region)
-        token = ecr.get_authorization_token()
-        
-        auth_data = token["authorizationData"][0]
+
+        if prod:
+            # Authenticate with AWS DLC production account
+            account_id = AWS_DLC_ACCOUNT_ID
+
+            # Get authorization token for the specific registry
+            try:
+                token_response = ecr.get_authorization_token(registryIds=[account_id])
+            except ClientError as e:
+                logger.error(f"Failed to get auth token for registry {account_id}: {e}")
+                return {
+                    "success": False,
+                    "error": f"Failed to authenticate with AWS DLC registry: {str(e)}",
+                }
+        else:
+            # Use default behavior for user's own account
+            try:
+                token_response = ecr.get_authorization_token()
+            except ClientError as e:
+                logger.error(f"Failed to get auth token: {e}")
+                return {"success": False, "error": str(e)}
+
+        auth_data = token_response["authorizationData"][0]
         endpoint = auth_data["proxyEndpoint"]
         auth_token = auth_data["authorizationToken"]
-        
+
+        # Perform Docker login
+        try:
+            import base64
+
+            # Decode the token
+            username, password = base64.b64decode(auth_token).decode().split(":")
+
+            # Execute docker login command
+            docker_login_cmd = [
+                "docker",
+                "login",
+                "--username",
+                username,
+                "--password-stdin",
+                endpoint,
+            ]
+
+            result = subprocess.run(
+                docker_login_cmd, input=password, text=True, capture_output=True, check=True
+            )
+
+            logger.info(f"Successfully logged into ECR: {endpoint}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Docker login failed: {e}")
+            return {
+                "success": False,
+                "error": f"Docker login failed: {e.stderr if e.stderr else str(e)}",
+            }
+        except Exception as e:
+            logger.error(f"Failed to perform Docker login: {e}")
+            return {"success": False, "error": f"Failed to perform Docker login: {str(e)}"}
+
         return {
             "success": True,
             "endpoint": endpoint,
             "auth_token": auth_token,
-            "expires_at": auth_data["expiresAt"].isoformat()
+            "expires_at": auth_data["expiresAt"].isoformat(),
+            "account_id": account_id if prod else endpoint.split(".")[0].split("//")[1],
+            "region": region,
+            "message": f"Successfully authenticated with ECR: {endpoint}",
+        }
+
+    except NoCredentialsError:
+        return {
+            "success": False,
+            "error": "AWS credentials not found. Please run 'aws configure' first.",
         }
     except Exception as e:
         logger.error(f"Failed to get ECR login command: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
-def list_dlc_repositories(region: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_dlc_repositories(
+    region: Optional[str] = None, repository_name: List[str] = []
+) -> List[Dict[str, Any]]:
     """
-    List DLC repositories in the AWS DLC registry.
-    
+    List DLC repositories and their images from AWS DLC registry.
+
     Args:
-        region (Optional[str]): AWS region
-        
+        region (Optional[str]): AWS region, defaults to current region
+
     Returns:
-        List[Dict[str, Any]]: List of repositories
+        List[Dict[str, Any]]: List of repositories and their images
     """
     try:
-        # This is a simplified implementation since we don't have direct access to the AWS DLC registry
-        # In a real implementation, you would query the public ECR registry
-        frameworks = ["pytorch", "tensorflow", "mxnet", "autogluon"]
-        use_cases = ["training", "inference"]
-        
+        region = region or get_aws_region()
+        ecr = get_ecr_client(region)
         repositories = []
-        for framework in frameworks:
-            for use_case in use_cases:
-                repositories.append({
-                    "name": f"{framework}-{use_case}",
-                    "uri": f"763104351884.dkr.ecr.{region or get_aws_region()}.amazonaws.com/{framework}-{use_case}"
-                })
-        
-        return repositories
+
+        try:
+            response = ecr.describe_repositories(
+                repositoryNames=repository_name,
+                registryId=AWS_DLC_ACCOUNT_ID,
+            )
+
+            repo_list = response.get("repositories", [])
+
+            for repo in repo_list:
+                repo_name = repo["repositoryName"]
+
+                frameworks = ["pytorch", "tensorflow", "mxnet", "huggingface", "autogluon"]
+                if not any(framework in repo_name.lower() for framework in frameworks):
+                    continue
+
+                try:
+                    image_response = ecr.describe_images(
+                        registryId=AWS_DLC_ACCOUNT_ID,
+                        repositoryName=repo_name,
+                        maxResults=20,
+                        filter={"tagStatus": "TAGGED"},
+                    )
+
+                    images = []
+                    for image_detail in image_response.get("imageDetails", []):
+                        tags = image_detail.get("imageTags", [])
+                        for tag in tags:
+                            images.append(
+                                {
+                                    "tag": tag,
+                                    "digest": image_detail.get("imageDigest", ""),
+                                    "pushed_at": image_detail.get("imagePushedAt", ""),
+                                    "size": image_detail.get("imageSizeInBytes", 0),
+                                    "full_uri": f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.{region}.amazonaws.com/{repo_name}:{tag}",
+                                }
+                            )
+
+                    if images:
+                        repositories.append(
+                            {
+                                "repositoryName": repo_name,
+                                "repositoryUri": repo.get("repositoryUri", ""),
+                                "repositoryArn": repo.get("repositoryArn", ""),
+                                "images": images,
+                                "image_count": len(images),
+                            }
+                        )
+
+                except Exception as image_error:
+                    logger.warning(f"Error getting images for {repo_name}: {image_error}")
+                    continue
+
+            next_token = response.get("nextToken")
+            while next_token:
+                next_response = ecr.describe_repositories(
+                    registryId=AWS_DLC_ACCOUNT_ID, maxResults=100, nextToken=next_token
+                )
+                next_token = next_response.get("nextToken")
+
+            logger.info(f"Found {len(repositories)} DLC repositories with images")
+            return repositories
+
+        except Exception as repo_error:
+            logger.error(f"Error listing repositories: {repo_error}")
+            return []
+
     except Exception as e:
-        logger.error(f"Failed to list DLC repositories: {e}")
+        logger.error(f"Error in list_dlc_repositories: {e}")
         return []
+
+
+def filter_dlc_images(
+    repositories: List[Dict[str, Any]],
+    framework: Optional[str] = None,
+    python_version: Optional[str] = None,
+    cuda_version: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Filter DLC images based on specified criteria.
+
+    Args:
+        repositories: List of repositories and their images
+        framework: Framework name (e.g., 'pytorch', 'tensorflow')
+        python_version: Python version (e.g., 'py39', '3.9')
+        cuda_version: CUDA version (e.g., 'cu118', '11.8')
+
+    Returns:
+        List[Dict[str, Any]]: Filtered list of repositories and images
+    """
+    if not repositories:
+        return []
+
+    filtered_repos = []
+
+    for repo in repositories:
+        # Extract repository name, ensuring we have the right field
+        repo_name = repo.get("repositoryName", "")
+        if not repo_name:
+            repo_name = repo.get("name", "")
+
+        repo_name_lower = repo_name.lower()
+
+        # Filter by framework
+        if framework and framework.lower() not in repo_name_lower:
+            continue
+
+        images = repo.get("images", [])
+
+        filtered_images = []
+        for image in images:
+            tag = image.get("tag", "")
+            if not tag and "imageTag" in image:
+                tag = image.get("imageTag", "")
+
+            if not tag:
+                continue
+
+            tag_lower = tag.lower()
+
+            # Filter by Python version
+            if python_version:
+                py_version = python_version.lower()
+                if not (
+                    py_version in tag_lower
+                    or f"py{py_version.replace('.', '')}" in tag_lower
+                    or f"python{py_version}" in tag_lower
+                ):
+                    continue
+
+            # Filter by CUDA version
+            if cuda_version:
+                cuda_ver = cuda_version.lower()
+                if not (
+                    cuda_ver in tag_lower
+                    or f"cu{cuda_ver.replace('.', '')}" in tag_lower
+                    or f"cuda{cuda_ver}" in tag_lower
+                ):
+                    continue
+
+            filtered_images.append(image)
+
+        if filtered_images:
+            filtered_repo = repo.copy()
+            filtered_repo["images"] = filtered_images
+            filtered_repo["filtered_image_count"] = len(filtered_images)
+            filtered_repos.append(filtered_repo)
+
+    return filtered_repos
