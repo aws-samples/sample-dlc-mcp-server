@@ -635,50 +635,105 @@ def register_module(mcp: FastMCP) -> None:
     @mcp.prompt("list available images")
     def list_images_prompt():
         """List available DLC images with automatic setup"""
-        return ["list_dlc_images"]
+        return [
+            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "Do you need a training or inference image?",
+            "Do you need CPU or GPU support?",
+            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "list_dlc_images",
+        ]
 
     @mcp.prompt("show pytorch images")
     def pytorch_images_prompt():
         """Show available PyTorch DLC images"""
-        return ["list_dlc_images"]
+        return [
+            "Do you need a training or inference image?",
+            "Do you need CPU or GPU support?",
+            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "list_dlc_images",
+        ]
 
     @mcp.prompt("show tensorflow images")
     def tensorflow_images_prompt():
         """Show available TensorFlow DLC images"""
-        return ["list_dlc_images"]
+        return [
+            "Do you need a training or inference image?",
+            "Do you need CPU or GPU support?",
+            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "list_dlc_images",
+        ]
 
     @mcp.prompt("list gpu images")
     def gpu_images_prompt():
         """List GPU-enabled DLC images"""
-        return ["list_dlc_images"]
-
-    @mcp.prompt("check aws setup")
-    def check_aws_prompt():
-        """Check AWS configuration status"""
-        return ["check_aws_config"]
+        return [
+            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "Do you need a training or inference image?",
+            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
+            "Any specific CUDA version? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "list_dlc_images",
+        ]
 
     @mcp.prompt("run container")
     def run_container_prompt():
         """Run a DLC container"""
-        return ["run_dlc_container"]
+        return [
+            "What's the full image URI you want to run?",
+            "What name would you like to give to the container?",
+            "Do you need GPU support? (yes/no)",
+            "Any specific command to run in the container?",
+            "run_dlc_container",
+        ]
 
     @mcp.prompt("distributed training")
     def distributed_training_prompt():
         """Setup distributed training with DLC"""
-        return ["setup_distributed_training"]
+        return [
+            "What's the full image URI for distributed training?",
+            "How many nodes do you want to use?",
+            "How many GPUs per node? (default is 8)",
+            "What ML framework are you using? (default is pytorch)",
+            "setup_distributed_training",
+        ]
 
-    # Workflow prompts - Simplified to use direct image listing
     @mcp.prompt("find images")
     def find_images_prompt():
         """Find and list DLC images"""
-        return ["list_dlc_images"]
+        return [
+            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "Do you need a training or inference image?",
+            "Do you need CPU or GPU support?",
+            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "list_dlc_images",
+        ]
 
     @mcp.prompt("prepare training")
     def prepare_training_prompt():
         """Prepare for training by listing images and setting up container"""
-        return ["list_dlc_images", "run_dlc_container"]
+        return [
+            "What framework are you using for training?",
+            "Do you need GPU support?",
+            "Any specific Python or CUDA version?",
+            "list_dlc_images",
+            "What's the full image URI you want to use for training?",
+            "What name would you like to give to the training container?",
+            "Any specific command to run for training?",
+            "run_dlc_container",
+        ]
 
     @mcp.prompt("get ready for ml")
     def ml_ready_prompt():
         """Complete ML setup workflow"""
-        return ["check_aws_config", "list_dlc_images"]
+        return [
+            "check_aws_config",
+            "What framework are you planning to use?",
+            "Do you need a training or inference image?",
+            "Do you need CPU or GPU support?",
+            "Any specific Python version?",
+            "Any specific CUDA version for GPU?",
+            "list_dlc_images",
+        ]
