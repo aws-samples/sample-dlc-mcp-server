@@ -7,9 +7,9 @@ from typing import Dict, Any, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from awslabs.dlc_mcp_server.utils.docker_utils import build_image, pull_image, push_image
-from awslabs.dlc_mcp_server.utils.aws_utils import create_ecr_repository
-from awslabs.dlc_mcp_server.utils.config import get_aws_region
+from aws_samples.dlc_mcp_server.utils.docker_utils import build_image, pull_image, push_image
+from aws_samples.dlc_mcp_server.utils.aws_utils import create_ecr_repository
+from aws_samples.dlc_mcp_server.utils.config import get_aws_region
 
 logger = logging.getLogger(__name__)
 

@@ -48,7 +48,7 @@ Other authentication methods:
 ## Installation
 
 ```bash
-pip install awslabs.dlc-mcp-server
+pip install aws_samples.dlc-mcp-server
 ```
 
 ## Usage

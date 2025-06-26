@@ -8,9 +8,9 @@ from dataclasses import dataclass
 
 from mcp.server.fastmcp import FastMCP
 
-from awslabs.dlc_mcp_server.utils.aws_utils import create_ecr_repository, get_ecr_login_command
-from awslabs.dlc_mcp_server.utils.docker_utils import build_image, pull_image, push_image
-from awslabs.dlc_mcp_server.utils.config import get_aws_region
+from aws_samples.dlc_mcp_server.utils.aws_utils import create_ecr_repository, get_ecr_login_command
+from aws_samples.dlc_mcp_server.utils.docker_utils import build_image, pull_image, push_image
+from aws_samples.dlc_mcp_server.utils.config import get_aws_region
 
 # Constants
 DEFAULT_WORKDIR = "/opt/ml"

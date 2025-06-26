@@ -9,7 +9,7 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from awslabs.dlc_mcp_server.modules import (
+from aws_samples.dlc_mcp_server.modules import (
     image_building,
     deployment,
     troubleshooting,
@@ -17,8 +17,8 @@ from awslabs.dlc_mcp_server.modules import (
     best_practices,
     containers,
 )
-from awslabs.dlc_mcp_server.utils.config import get_config
-from awslabs.dlc_mcp_server.utils.security import (
+from aws_samples.dlc_mcp_server.utils.config import get_config
+from aws_samples.dlc_mcp_server.utils.security import (
     PERMISSION_WRITE,
     PERMISSION_SENSITIVE_DATA,
     secure_tool,

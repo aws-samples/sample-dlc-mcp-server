@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "awslabs.dlc-mcp-server"
+name = "aws_samples.dlc-mcp-server"
 version = "0.1.0"
 description = "AWS Deep Learning Containers MCP Server for building, customizing, and deploying DLC images"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Amazon Web Services", email = "aws-mcp-servers@amazon.com" },
+    { name = "Amazon Web Services" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -46,15 +46,15 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/awslabs/mcp"
-Documentation = "https://awslabs.github.io/mcp/servers/dlc-mcp-server/"
-Issues = "https://github.com/awslabs/mcp/issues"
+Homepage = "https://github.com/aws_samples/sample-dlc-mcp-server"
+Documentation = "https://github.com/aws_samples/sample-dlc-mcp-server"
+Issues = "https://github.com/aws_samples/sample-dlc-mcp-server/issues"
 
 [project.scripts]
-dlc-mcp-server = "awslabs.dlc_mcp_server.main:main"
+dlc-mcp-server = "aws_samples.dlc_mcp_server.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["awslabs"]
+packages = ["aws_samples"]
 
 [tool.black]
 line-length = 100

@@ -6,13 +6,13 @@ from typing import Dict, Any, Optional, List
 
 from mcp.server.fastmcp import FastMCP
 
-from awslabs.dlc_mcp_server.utils.aws_utils import (
+from aws_samples.dlc_mcp_server.utils.aws_utils import (
     get_sagemaker_client,
     get_ecs_client,
     get_eks_client,
     get_ec2_client,
 )
-from awslabs.dlc_mcp_server.utils.config import get_aws_region
+from aws_samples.dlc_mcp_server.utils.config import get_aws_region
 
 logger = logging.getLogger(__name__)
 

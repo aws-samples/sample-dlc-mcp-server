@@ -10,7 +10,7 @@ from docker import DockerClient
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from awslabs.dlc_mcp_server.utils.aws_utils import (
+from aws_samples.dlc_mcp_server.utils.aws_utils import (
     get_ecr_login_command,
     filter_dlc_images,
     list_dlc_repositories,
