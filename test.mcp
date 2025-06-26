@@ -1,0 +1,17 @@
+{
+  mcpServers: {
+   dlc-mcp-server:
+	{
+      command: uv,
+      args: [
+        --directory,
+        /Users/sathyaws/work/code/ml/sample-dlc-mcp-server,
+        run,
+        dlc-mcp-server
+      ],
+      env: {},
+      timeout: 120000
+   }
+  }
+}
+
