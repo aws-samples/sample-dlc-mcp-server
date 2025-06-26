@@ -7,7 +7,7 @@ import subprocess
 from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from awslabs.dlc_mcp_server.utils.config import get_aws_region
+from aws_samples.dlc_mcp_server.utils.config import get_aws_region
 
 logger = logging.getLogger(__name__)
 

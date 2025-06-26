@@ -2,7 +2,7 @@
 
 import unittest
 
-from awslabs.dlc_mcp_server.modules.troubleshooting import (
+from aws_samples.dlc_mcp_server.modules.troubleshooting import (
     diagnose_common_issues,
     get_framework_compatibility_info,
     get_performance_optimization_tips

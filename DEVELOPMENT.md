@@ -13,7 +13,7 @@ This guide provides instructions for setting up a development environment for th
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/awslabs/mcp.git
+   git clone https://github.com/aws_samples/mcp.git
    cd mcp/src/dlc-mcp-server
    ```
 
@@ -39,7 +39,7 @@ pytest
 Run tests with coverage:
 
 ```bash
-pytest --cov=awslabs.dlc_mcp_server
+pytest --cov=aws_samples.dlc_mcp_server
 ```
 
 ## Code Quality
@@ -47,25 +47,25 @@ pytest --cov=awslabs.dlc_mcp_server
 Format code with Black:
 
 ```bash
-black awslabs
+black aws_samples
 ```
 
 Sort imports with isort:
 
 ```bash
-isort awslabs
+isort aws_samples
 ```
 
 Run linting with Ruff:
 
 ```bash
-ruff check awslabs
+ruff check aws_samples
 ```
 
 Run type checking with mypy:
 
 ```bash
-mypy awslabs
+mypy aws_samples
 ```
 
 ## Running the Server Locally
@@ -84,7 +84,7 @@ ALLOW_WRITE=true FASTMCP_LOG_LEVEL=DEBUG dlc-mcp-server
 
 ## Project Structure
 
-- `awslabs/dlc_mcp_server/`: Main package
+- `aws_samples/dlc_mcp_server/`: Main package
   - `api/`: API definitions and schemas
   - `modules/`: Functional modules (image building, deployment, etc.)
   - `templates/`: Jinja2 templates for Dockerfiles and configurations
@@ -93,7 +93,7 @@ ALLOW_WRITE=true FASTMCP_LOG_LEVEL=DEBUG dlc-mcp-server
 
 ## Adding New Features
 
-1. Create a new module in `awslabs/dlc_mcp_server/modules/`
+1. Create a new module in `aws_samples/dlc_mcp_server/modules/`
 2. Implement the necessary functions and classes
 3. Register the module in `main.py`
 4. Add tests in the `tests/` directory

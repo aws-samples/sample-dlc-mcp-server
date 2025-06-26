@@ -3,13 +3,13 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from awslabs.dlc_mcp_server.modules.image_building import (
+from aws_samples.dlc_mcp_server.modules.image_building import (
     list_base_images,
     create_custom_dockerfile,
     build_custom_dlc_image,
 )
 
-from awslabs.dlc_mcp_server.modules.containers import list_available_dlc_images
+from aws_samples.dlc_mcp_server.modules.containers import list_available_dlc_images
 
 
 class TestImageBuilding(unittest.TestCase):
@@ -70,10 +70,10 @@ class TestImageBuilding(unittest.TestCase):
         for key, value in env_vars.items():
             self.assertIn(f"ENV {key}={value}", content)
 
-    @patch("awslabs.dlc_mcp_server.modules.image_building.pull_image")
-    @patch("awslabs.dlc_mcp_server.modules.image_building.build_image")
-    @patch("awslabs.dlc_mcp_server.modules.image_building.create_ecr_repository")
-    @patch("awslabs.dlc_mcp_server.modules.image_building.push_image")
+    @patch("aws_samples.dlc_mcp_server.modules.image_building.pull_image")
+    @patch("aws_samples.dlc_mcp_server.modules.image_building.build_image")
+    @patch("aws_samples.dlc_mcp_server.modules.image_building.create_ecr_repository")
+    @patch("aws_samples.dlc_mcp_server.modules.image_building.push_image")
     def test_build_custom_dlc_image(self, mock_push, mock_create_repo, mock_build, mock_pull):
         """Test building a custom DLC image."""
         # Mock successful responses

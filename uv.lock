@@ -39,7 +39,7 @@ wheels = [
 ]
 
 [[package]]
-name = "awslabs-dlc-mcp-server"
+name = "aws_samples-dlc-mcp-server"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
