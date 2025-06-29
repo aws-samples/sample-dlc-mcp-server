@@ -2,48 +2,30 @@
 
 A comprehensive Model Context Protocol (MCP) server for AWS Deep Learning Containers (DLC) that provides end-to-end support for machine learning workflows. This server offers six core service modules to help you build, deploy, upgrade, and optimize your DLC-based ML infrastructure.
 
-## Prerequisites
-
-Before using the AWS Deep Learning Containers MCP Server, ensure you have the following set up:
-
-### 1. AWS Q CLI
-Install and configure the AWS Q CLI 
-- [Installing AWS Q CLI](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-installing-ssh-setup-autocomplete.html)
-
-### 2. Model Context Protocol (MCP)
-Set up MCP to enable seamless integration with AWS Q:
-- [Understanding and Configuring MCP](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-understanding-config.html)
-
-### 3. Docker Environment
-Choose one of the following options:
-- **Local Development**: [Install Docker Desktop](https://docs.docker.com/get-started/introduction/get-docker-desktop/)
-- **Cloud Development**: Set up an EC2 instance with Docker installed
-
-### 4. AWS Credentials and Configuration
-Configure your AWS credentials using one of these methods:
-```bash
-$ aws configure
-AWS Access Key ID [None]: <<YOUR ACCESS KEY ID>>
-AWS Secret Access Key [None]: <<YOUR Secret KEY>>
-Default region name [None]: <<YOUR REGION>>
-Default output format [None]: json
-
-$ aws configure set aws_session_token <<YOUR SESSION TOKEN>>
-
-$ ada credentials update --once 
-```
-
-
-
-Other authentication methods: 
-- **Configuration Files**: [AWS CLI Configuration and Credential Files](https://docs.aws.amazon.com/cli/v1/userguide/cli-configure-files.html)
-- **Authentication Methods**: [AWS CLI User Authentication](https://docs.aws.amazon.com/cli/v1/userguide/cli-authentication-user.html)
-
 ## Quick Start Guide
 
-### 1. Installation and Setup
+### Installation Steps
+
+### 1. **Prerequisites**:
+   - Create an AWS Instance Profile with the following policies. Use this profile while creating EC2 instance in the next step. 
+     - AmazonECS_FullAccess Policy 
+     - AmazonEC2ContainerRegistryFullAccess
+   - EC2 with [DLC Image](https://docs.aws.amazon.com/dlami/latest/devguide/overview-base.html) recommended.
+     - Launch an Amazon Elastic Compute Cloud instance (CPU or GPU), preferably a Deep Learning Base AMI. Other AMIs work but require relevant GPU drivers. If you prefer to work with local docker desktop setup on your machine, then you can skip to step. 
+   - AWS CLI
+   - Python 3.11 or later
+   - Docker (DLC Image contains Docker)
+   - Connect to your instance by using SSH. For more information about connections, see [Troubleshooting Connecting to Your Instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/TroubleshootingInstancesConnecting.html) in the Amazon EC2 user guide..
+   - Install and configure the AWS Q CLI with this [guide](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-installing-ssh-setup-autocomplete.html)
+	
+
+### 2. Configure DLC MCP Server
+
 
 ```bash
+#clone the repo
+git clone https://github.com/aws-samples/sample-dlc-mcp-server.git
+cd sample-dlc-mcp-server
 # Build and install MCP server
 python3 -m pip install -e .
 
@@ -51,14 +33,26 @@ python3 -m pip install -e .
 dlc-mcp-server
 ```
 
-### 2. Configure DLC MCP Server
-
 ```bash
 # Update ~/.aws/amazonq/mcp.json
+# Update the path to your local sample-dlc-mcp-server directory
 echo "{ "mcpServers": { "dlc-mcp-server": { "command": "uv", "args": [ "--directory", "<<Update-directory-path>>/sample-dlc-mcp-server", "run", "dlc-mcp-server" ], "env": {}, "timeout": 120000 } } }” > ~/.aws/amazonq/mcp.json```
 ```
+### 3. AWS Credentials and Configuration
+   - AWS Credentials and Configuration 
+     - Configure your AWS credentials using one of these methods:
+      ```bash
+         aws configure
+         aws configure set aws_session_token <<token>>
+         
+         ada credentials update --once 
+      ```
+   - Other authentication methods:
+     - Configuration Files: [AWS CLI Configuration and Credential Files](https://docs.aws.amazon.com/cli/v1/userguide/cli-configure-files.html)
+     - Authentication Methods: [AWS CLI User Authentication](https://docs.aws.amazon.com/cli/v1/userguide/cli-authentication-user.html)
 
-### 3. Basic Usage Examples
+
+### Basic Usage Examples
 
 #### List Available DLC Images
 ```bash
@@ -99,7 +93,7 @@ q chat "Upgrade my PyTorch image from 1.13 to 2.0"
 q chat "What's needed to upgrade my TensorFlow 2.10 image to 2.13?"
 ```
 
-### 3. Configuration
+### 6. Configuration
 
 The server can be configured using environment variables:
 
