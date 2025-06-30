@@ -6,7 +6,7 @@ import os
 import subprocess
 from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError, NoCredentialsError
-
+import re
 from aws_samples.dlc_mcp_server.utils.config import get_aws_region
 
 logger = logging.getLogger(__name__)
@@ -14,6 +14,47 @@ logger = logging.getLogger(__name__)
 # AWS DLC Production Account ID
 AWS_DLC_ACCOUNT_ID = "763104351884"
 
+SUPPORTED_FRAMEWORKS = {
+    "pytorch": {
+        "versions": {
+            "2.7": {
+                "cuda": "12.8",
+                "eol": "2026-04-23",
+                "status": "supported"
+            },
+            "2.6": {
+                "cuda": {
+                    "training": "12.6",
+                    "inference": "12.4"
+                },
+                "eol": "2026-01-29",
+                "status": "supported"
+            },
+            "2.5": {
+                "cuda": "12.4",
+                "eol": "2025-10-29",
+                "status": "supported"
+            },
+            "2.4": {
+                "cuda": "12.4",
+                "eol": "2025-07-24",
+                "status": "supported"
+            }
+        }
+    },
+    "tensorflow": {
+        "versions": {
+            "2.18": {
+                "cuda": {
+                    "training": "12.5",
+                    "inference": "12.2"
+                },
+                "eol": "2026-01-24",
+                "status": "supported"
+            }
+        }
+    }
+}
 
 def get_ecr_client(region: Optional[str] = None) -> Any:
     """
@@ -225,12 +266,11 @@ def get_ecr_login_command(region: Optional[str] = None, prod: bool = False) -> D
         logger.error(f"Failed to get ECR login command: {e}")
         return {"success": False, "error": str(e)}
 
-
 def list_dlc_repositories(
     region: Optional[str] = None, repository_name: List[str] = []
 ) -> List[Dict[str, Any]]:
     """
-    List DLC repositories and their images from AWS DLC registry.
+    List DLC repositories and their images from AWS DLC registry, filtering for supported frameworks.
 
     Args:
         region (Optional[str]): AWS region, defaults to current region
@@ -254,46 +294,44 @@ def list_dlc_repositories(
             for repo in repo_list:
                 repo_name = repo["repositoryName"]
 
-                frameworks = ["pytorch", "tensorflow", "mxnet", "huggingface", "autogluon"]
-                if not any(framework in repo_name.lower() for framework in frameworks):
-                    continue
+                # Check if the repository is for a supported framework
+                if any(framework in repo_name.lower() for framework in SUPPORTED_FRAMEWORKS):
+                    try:
+                        image_response = ecr.describe_images(
+                            registryId=AWS_DLC_ACCOUNT_ID,
+                            repositoryName=repo_name,
+                            maxResults=20,
+                            filter={"tagStatus": "TAGGED"},
+                        )
 
-                try:
-                    image_response = ecr.describe_images(
-                        registryId=AWS_DLC_ACCOUNT_ID,
-                        repositoryName=repo_name,
-                        maxResults=20,
-                        filter={"tagStatus": "TAGGED"},
-                    )
+                        images = []
+                        for image_detail in image_response.get("imageDetails", []):
+                            tags = image_detail.get("imageTags", [])
+                            for tag in tags:
+                                images.append(
+                                    {
+                                        "tag": tag,
+                                        "digest": image_detail.get("imageDigest", ""),
+                                        "pushed_at": image_detail.get("imagePushedAt", ""),
+                                        "size": image_detail.get("imageSizeInBytes", 0),
+                                        "full_uri": f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.{region}.amazonaws.com/{repo_name}:{tag}",
+                                    }
+                                )
 
-                    images = []
-                    for image_detail in image_response.get("imageDetails", []):
-                        tags = image_detail.get("imageTags", [])
-                        for tag in tags:
-                            images.append(
+                        if images:
+                            repositories.append(
                                 {
-                                    "tag": tag,
-                                    "digest": image_detail.get("imageDigest", ""),
-                                    "pushed_at": image_detail.get("imagePushedAt", ""),
-                                    "size": image_detail.get("imageSizeInBytes", 0),
-                                    "full_uri": f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.{region}.amazonaws.com/{repo_name}:{tag}",
+                                    "repositoryName": repo_name,
+                                    "repositoryUri": repo.get("repositoryUri", ""),
+                                    "repositoryArn": repo.get("repositoryArn", ""),
+                                    "images": images,
+                                    "image_count": len(images),
                                 }
                             )
 
-                    if images:
-                        repositories.append(
-                            {
-                                "repositoryName": repo_name,
-                                "repositoryUri": repo.get("repositoryUri", ""),
-                                "repositoryArn": repo.get("repositoryArn", ""),
-                                "images": images,
-                                "image_count": len(images),
-                            }
-                        )
-
-                except Exception as image_error:
-                    logger.warning(f"Error getting images for {repo_name}: {image_error}")
-                    continue
+                    except Exception as image_error:
+                        logger.warning(f"Error getting images for {repo_name}: {image_error}")
+                        continue
 
             next_token = response.get("nextToken")
             while next_token:
@@ -302,7 +340,7 @@ def list_dlc_repositories(
                 )
                 next_token = next_response.get("nextToken")
 
-            logger.info(f"Found {len(repositories)} DLC repositories with images")
+            logger.info(f"Found {len(repositories)} DLC repositories with images for supported frameworks")
             return repositories
 
         except Exception as repo_error:
@@ -313,73 +351,66 @@ def list_dlc_repositories(
         logger.error(f"Error in list_dlc_repositories: {e}")
         return []
 
-
 def filter_dlc_images(
     repositories: List[Dict[str, Any]],
     framework: Optional[str] = None,
+    image_type: Optional[str] = None,
     python_version: Optional[str] = None,
     cuda_version: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Filter DLC images based on specified criteria.
+    Filter DLC images based on specified criteria and support policy.
 
     Args:
         repositories: List of repositories and their images
         framework: Framework name (e.g., 'pytorch', 'tensorflow')
-        python_version: Python version (e.g., 'py39', '3.9')
-        cuda_version: CUDA version (e.g., 'cu118', '11.8')
+        image_type: Type of image (e.g., 'training', 'inference')
+        python_version: Python version (e.g., '3.9', '3.10')
+        cuda_version: CUDA version (e.g., '11.8', '12.4')
 
     Returns:
         List[Dict[str, Any]]: Filtered list of repositories and images
     """
-    if not repositories:
+    if not repositories or framework not in SUPPORTED_FRAMEWORKS:
         return []
 
     filtered_repos = []
 
     for repo in repositories:
-        # Extract repository name, ensuring we have the right field
-        repo_name = repo.get("repositoryName", "")
-        if not repo_name:
-            repo_name = repo.get("name", "")
-
+        repo_name = repo.get("repositoryName", "") or repo.get("name", "")
         repo_name_lower = repo_name.lower()
 
         # Filter by framework
         if framework and framework.lower() not in repo_name_lower:
             continue
 
+        # Filter by image type
+        if image_type and image_type.lower() not in repo_name_lower:
+            continue
+
         images = repo.get("images", [])
-
         filtered_images = []
-        for image in images:
-            tag = image.get("tag", "")
-            if not tag and "imageTag" in image:
-                tag = image.get("imageTag", "")
 
+        for image in images:
+            tag = image.get("tag", "") or image.get("imageTag", "")
             if not tag:
                 continue
 
-            tag_lower = tag.lower()
+            # Extract framework version from tag
+            version_match = re.search(r'(\d+\.\d+)', tag)
+            if not version_match:
+                continue
+            
+            fw_version = version_match.group(1)
+
+            # Check if version is supported
+            if not is_supported_version(framework, fw_version):
+                continue
 
             # Filter by Python version
             if python_version:
-                py_version = python_version.lower()
-                if not (
-                    py_version in tag_lower
-                    or f"py{py_version.replace('.', '')}" in tag_lower
-                    or f"python{py_version}" in tag_lower
-                ):
-                    continue
-
-            # Filter by CUDA version
-            if cuda_version:
-                cuda_ver = cuda_version.lower()
-                if not (
-                    cuda_ver in tag_lower
-                    or f"cu{cuda_ver.replace('.', '')}" in tag_lower
-                    or f"cuda{cuda_ver}" in tag_lower
-                ):
+                py_version = f"py{python_version.replace('.', '')}"
+                if py_version not in tag.lower():
                     continue
 
             filtered_images.append(image)
@@ -391,3 +422,15 @@ def filter_dlc_images(
             filtered_repos.append(filtered_repo)
 
     return filtered_repos
+
+def is_supported_version(framework: str, version: str) -> bool:
+    """Check if the framework version is supported according to the support policy."""
+    if framework not in SUPPORTED_FRAMEWORKS:
+        return False
+    
+    framework_versions = SUPPORTED_FRAMEWORKS[framework]["versions"]
+    if version not in framework_versions:
+        return False
+    
+    version_info = framework_versions[version]
+    return version_info["status"] == "supported"
