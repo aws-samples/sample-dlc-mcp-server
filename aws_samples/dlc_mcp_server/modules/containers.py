@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 from typing import Dict, Any, List, Optional
+import re
 
 import docker
 from docker import DockerClient
@@ -16,7 +17,19 @@ from aws_samples.dlc_mcp_server.utils.aws_utils import (
     list_dlc_repositories,
 )
 from pydantic import Field
-import re
+
+
+SUPPORTED_IMAGES = {
+    "pytorch": [
+        {"version": "2.7", "cuda": "12.8", "eol": "2026-04-23"},
+        {"version": "2.6", "cuda": {"training": "12.6", "inference": "12.4"}, "eol": "2026-01-29"},
+        {"version": "2.5", "cuda": "12.4", "eol": "2025-10-29"},
+        {"version": "2.4", "cuda": "12.4", "eol": "2025-07-24"},
+    ],
+    "tensorflow": [
+        {"version": "2.18", "cuda": {"training": "12.5", "inference": "12.2"}, "eol": "2026-01-24"},
+    ],
+}
 
 FRAMEWORK_TYPES = {
     "pytorch": ["training", "inference"],
@@ -220,12 +233,33 @@ class DLCDistributedTrainingConfig:
         return {"success": True, "config": {**base_config, "environment": TENSORFLOW_CONFIG}}
 
 
-# Constants
-DEFAULT_REGION = "us-west-2"
-DEFAULT_GPU_PER_NODE = 1
-DEFAULT_FRAMEWORK = "pytorch"
+def is_version_supported(framework: str, version: str, cuda_version: str) -> bool:
+    """
+    Check if the given framework version and CUDA version are supported.
+    """
+    if framework not in SUPPORTED_IMAGES:
+        return False
 
-logger = logging.getLogger(__name__)
+    for supported_version in SUPPORTED_IMAGES[framework]:
+        if supported_version["version"] == version:
+            if isinstance(supported_version["cuda"], str):
+                return supported_version["cuda"] == cuda_version
+
+    return False
+
+
+def extract_info_from_image_uri(image_uri: str) -> tuple:
+    """
+    Extract framework version and CUDA version from image URI.
+    """
+    # Example: 763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.7.0-gpu-py310-cu121-ubuntu20.04-ec2
+    pattern = r":(\d+\.\d+).*-cu(\d+)"
+    match = re.search(pattern, image_uri)
+    if match:
+        framework_version = match.group(1)
+        cuda_version = f"{match.group(2)[:-1]}.{match.group(2)[-1]}"
+        return framework_version, cuda_version
+    return None, None
 
 
 def check_aws_configuration() -> Dict[str, Any]:
@@ -340,6 +374,12 @@ async def list_available_dlc_images(
         Dict containing filtered DLC images or error information
     """
     try:
+        if framework not in SUPPORTED_IMAGES:
+            supported_frameworks = ", ".join(SUPPORTED_IMAGES.keys())
+            raise ValueError(
+                f"Framework {framework} not supported. Supported frameworks: {supported_frameworks}"
+            )
+
         # Step 1: Check AWS configuration
         logger.info("Checking AWS configuration...")
         aws_check = check_aws_configuration()
@@ -389,7 +429,13 @@ async def list_available_dlc_images(
         logger.info(
             f"Filtering images with criteria - Framework: {framework}, Python: {python_version}, CUDA: {cuda_version}"
         )
-        filtered_images = filter_dlc_images(repositories, framework, python_version, cuda_version)
+        images = filter_dlc_images(repositories, framework, python_version, cuda_version)
+        filtered_images = []
+        for img in images:
+            img_version, img_cuda_version = extract_info_from_image_uri(img["image_uri"])
+            if is_version_supported(framework, img_version, img_cuda_version):
+                if not python_version or python_version in img["image_uri"]:
+                    filtered_images.append(img)
 
         # Step 6: Provide helpful suggestions if no images found
         if not filtered_images:
@@ -532,7 +578,7 @@ def register_module(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="list_dlc_repos",
-        description="List available DLC repositories (Requires ECR authentication)",
+        description="List available DLC repositories and Images (Requires ECR authentication)",
     )
     async def mcp_list_dlc_repos(
         framework: Optional[str] = Field(
@@ -573,7 +619,7 @@ def register_module(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="list_dlc_images",
-        description="List and filter available DLC images with automatic AWS setup and ECR authentication",
+        description="List and filter available DLC images with automatic AWS setup and ECR authentication, Make sure you use list_dlc_repos to fetch from repository",
     )
     async def mcp_list_dlc_images(
         framework: Optional[str] = Field(
@@ -582,11 +628,9 @@ def register_module(mcp: FastMCP) -> None:
         ),
         repo_type: Optional[str] = Field(None, description="Repository type (training, inference)"),
         python_version: Optional[str] = Field(
-            None, description="Filter by Python version (3.8, 3.9, 3.10, 3.11, 3.12)"
+            None, description="Filter by Python version (3.10, 3.11, 3.12)"
         ),
-        cuda_version: Optional[str] = Field(
-            None, description="Filter by CUDA version (11.8, 12.1, 12.4, 12.6)"
-        ),
+        cuda_version: Optional[str] = Field(None, description="Filter by CUDA version (2.8, 12.6)"),
         region: Optional[str] = Field(
             None, description="AWS region (defaults to configured region)"
         ),
@@ -631,7 +675,6 @@ def register_module(mcp: FastMCP) -> None:
     ) -> Dict[str, Any]:
         return setup_distributed_training(image_uri, num_nodes, gpu_per_node, framework)
 
-    # Prompt patterns - Updated to use list_dlc_images directly
     @mcp.prompt("list available images")
     def list_images_prompt():
         """List available DLC images with automatic setup"""
@@ -639,9 +682,10 @@ def register_module(mcp: FastMCP) -> None:
             "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
-            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
-            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "Any specific Python version? (e.g., 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
             "list_dlc_images",
+            "list_dlc_repos",
         ]
 
     @mcp.prompt("show pytorch images")
@@ -650,9 +694,10 @@ def register_module(mcp: FastMCP) -> None:
         return [
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
-            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
-            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "Any specific Python version? (e.g., 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
             "list_dlc_images",
+            "list_dlc_repos",
         ]
 
     @mcp.prompt("show tensorflow images")
@@ -661,8 +706,8 @@ def register_module(mcp: FastMCP) -> None:
         return [
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
-            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
-            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "Any specific Python version? (e.g., 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
             "list_dlc_images",
         ]
 
@@ -672,9 +717,10 @@ def register_module(mcp: FastMCP) -> None:
         return [
             "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
             "Do you need a training or inference image?",
-            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
-            "Any specific CUDA version? (e.g., 11.8, 12.1, 12.4, 12.6)",
+            "Any specific Python version? (e.g., 3.11, 3.12)",
+            "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
             "list_dlc_images",
+            "list_dlc_repos",
         ]
 
     @mcp.prompt("run container")
@@ -686,6 +732,7 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need GPU support? (yes/no)",
             "Any specific command to run in the container?",
             "run_dlc_container",
+            "list_dlc_repos",
         ]
 
     @mcp.prompt("distributed training")
@@ -706,9 +753,8 @@ def register_module(mcp: FastMCP) -> None:
             "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
-            "Any specific Python version? (e.g., 3.8, 3.9, 3.10, 3.11, 3.12)",
-            "Any specific CUDA version for GPU? (e.g., 11.8, 12.1, 12.4, 12.6)",
             "list_dlc_images",
+            "list_dlc_repos",
         ]
 
     @mcp.prompt("prepare training")
@@ -719,6 +765,7 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need GPU support?",
             "Any specific Python or CUDA version?",
             "list_dlc_images",
+            "list_dlc_repos",
             "What's the full image URI you want to use for training?",
             "What name would you like to give to the training container?",
             "Any specific command to run for training?",
@@ -736,4 +783,5 @@ def register_module(mcp: FastMCP) -> None:
             "Any specific Python version?",
             "Any specific CUDA version for GPU?",
             "list_dlc_images",
+            "list_dlc_repos",
         ]

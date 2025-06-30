@@ -45,7 +45,6 @@ echo "{ "mcpServers": { "dlc-mcp-server": { "command": "uv", "args": [ "--direct
          aws configure
          aws configure set aws_session_token <<token>>
          
-         ada credentials update --once 
       ```
    - Other authentication methods:
      - Configuration Files: [AWS CLI Configuration and Credential Files](https://docs.aws.amazon.com/cli/v1/userguide/cli-configure-files.html)
