@@ -431,3 +431,8 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for development instructions.
 ## License
 
 Apache 2.0
+
+## Disclaimer 
+
+Intent of this project is to share a flavor of DLC MCP Server to demonstrate the use of Amazon Q and MCP server to
+optimize the DLC maintenance. This project is not suited for direct production usage.  
