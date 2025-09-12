@@ -14,6 +14,7 @@ A comprehensive Model Context Protocol (MCP) server for AWS Deep Learning Contai
      - Launch an Amazon Elastic Compute Cloud instance (CPU or GPU), preferably a Deep Learning Base AMI. Other AMIs work but require relevant GPU drivers. If you prefer to work with local docker desktop setup on your machine, then you can skip to step. 
    - AWS CLI
    - Python 3.11 or later
+   - Install uv (pip install uv) to run the mcp server locally
    - Docker (DLC Image contains Docker)
    - Connect to your instance by using SSH. For more information about connections, see [Troubleshooting Connecting to Your Instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/TroubleshootingInstancesConnecting.html) in the Amazon EC2 user guide..
    - Install and configure the AWS Q CLI with this [guide](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-installing-ssh-setup-autocomplete.html)
