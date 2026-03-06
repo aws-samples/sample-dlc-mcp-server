@@ -4,13 +4,14 @@ A Model Context Protocol (MCP) server for AWS Deep Learning Containers (DLC) tha
 
 ## Features
 
-- **DLC Image Discovery**: Search and filter 80+ DLC images (PyTorch, TensorFlow, vLLM, SGLang, HuggingFace, AutoGluon, DJL, NeuronX)
+- **Dynamic DLC Image Discovery**: Automatically fetches latest images from [AWS DLC GitHub](https://aws.github.io/deep-learning-containers/reference/available_images/) - always up-to-date
 - **Image Building**: Create custom Dockerfiles and build images based on DLC base images
 - **Multi-Platform Deployment**: Deploy to SageMaker, EC2, ECS, and EKS
 - **Instance Recommendations**: Get GPU instance recommendations based on model size and budget
 - **Upgrade Support**: Analyze upgrade paths and generate migration Dockerfiles
 - **Troubleshooting**: Diagnose common DLC issues with actionable solutions
 - **Best Practices**: Security, cost optimization, and deployment guidance
+- **No AWS Credentials Required**: Discovery tools work without AWS credentials
 
 ## Quick Start
 
@@ -102,6 +103,7 @@ Add to `.kiro/settings/mcp.json`:
 | `list_dlc_frameworks` | List all available frameworks with versions |
 | `get_llm_serving_options` | Compare vLLM, SGLang, DJL, NeuronX options |
 | `compare_dlc_images` | Side-by-side image comparison |
+| `refresh_dlc_catalog` | Force refresh image catalog from GitHub |
 
 ### Image Building
 | Tool | Description |

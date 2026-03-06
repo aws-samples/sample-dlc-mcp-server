@@ -15,10 +15,6 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from aws_samples.dlc_mcp_server.utils.dlc_images import (
-    DLC_IMAGES,
-    DLCImage,
-    REGION_ACCOUNT_MAP,
-    NEURON_SUPPORTED_REGIONS,
     filter_images,
     get_latest_image,
     get_available_frameworks,
@@ -26,6 +22,8 @@ from aws_samples.dlc_mcp_server.utils.dlc_images import (
     get_recommended_image_for_model,
     get_ecr_account_for_region,
     is_neuron_supported_in_region,
+    get_dlc_images,
+    refresh_images,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,11 +251,12 @@ def compare_images(image_uris: List[str]) -> Dict[str, Any]:
     """
     try:
         comparisons = []
+        all_images = get_dlc_images()
 
         for uri in image_uris:
             # Try to find matching image in catalog
             matching = None
-            for img in DLC_IMAGES:
+            for img in all_images:
                 if img.framework in uri and img.version in uri:
                     matching = img
                     break
@@ -529,3 +528,10 @@ def register_module(mcp: FastMCP) -> None:
         region: str = Field("us-west-2", description="AWS region"),
     ) -> Dict[str, Any]:
         return get_llm_serving_options(model_name, max_model_size_gb, target_latency, region)
+
+    @mcp.tool(
+        name="refresh_dlc_catalog",
+        description="Force refresh the DLC image catalog from the AWS GitHub page. Use this to get the latest available images.",
+    )
+    async def mcp_refresh_catalog() -> Dict[str, Any]:
+        return refresh_images()

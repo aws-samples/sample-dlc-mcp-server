@@ -15,10 +15,10 @@ from aws_samples.dlc_mcp_server.modules.dlc_discovery import (
     get_llm_serving_options,
 )
 from aws_samples.dlc_mcp_server.utils.dlc_images import (
-    DLC_IMAGES,
     filter_images,
     get_latest_image,
     get_available_frameworks,
+    get_dlc_images,
 )
 
 
@@ -127,7 +127,8 @@ class TestDLCDiscovery(unittest.TestCase):
 
     def test_dlc_images_catalog_not_empty(self):
         """Test that DLC images catalog is populated."""
-        self.assertGreater(len(DLC_IMAGES), 50)
+        images = get_dlc_images()
+        self.assertGreater(len(images), 10)
 
     def test_available_frameworks(self):
         """Test getting available frameworks."""

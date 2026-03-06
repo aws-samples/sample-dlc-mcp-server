@@ -4,17 +4,31 @@
 ######
 
 """
-DLC Image Registry - Comprehensive catalog of AWS Deep Learning Container images.
-Based on: https://aws.github.io/deep-learning-containers/reference/available_images/
+DLC Image Registry - Dynamic catalog of AWS Deep Learning Container images.
+Fetches latest images from: https://aws.github.io/deep-learning-containers/reference/available_images/
 """
 
-from dataclasses import dataclass
+import logging
+import re
+import time
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from urllib.request import urlopen
+from urllib.error import URLError
+
+logger = logging.getLogger(__name__)
 
 # AWS DLC Production Account ID (primary)
 AWS_DLC_ACCOUNT_ID = "763104351884"
 
-# Region-specific account IDs for DLC images
+# GitHub page URL for available images
+DLC_IMAGES_URL = "https://aws.github.io/deep-learning-containers/reference/available_images/"
+
+# Cache settings
+_cache: Dict = {"images": [], "timestamp": 0, "regions": {}, "neuron_regions": []}
+CACHE_TTL_SECONDS = 3600  # 1 hour cache
+
+# Region-specific account IDs (fallback if fetch fails)
 REGION_ACCOUNT_MAP: Dict[str, str] = {
     "us-east-1": "763104351884",
     "us-east-2": "763104351884",
@@ -86,22 +100,39 @@ class DLCImage:
     engine_version: Optional[str] = None
     os_version: str = "ubuntu22.04"
     architecture: str = "x86_64"
+    image_uri_template: Optional[str] = None  # Store the original URI template
 
     def get_repository_name(self) -> str:
         """Get the ECR repository name for this image."""
+        if self.image_uri_template:
+            # Extract repo name from template
+            match = re.search(r"\.amazonaws\.com(?:\.cn)?/([^:]+):", self.image_uri_template)
+            if match:
+                return match.group(1)
+
         base = self.framework
         if self.use_case and self.framework not in ["base", "sglang", "vllm", "djl-inference"]:
             base = f"{self.framework}-{self.use_case}"
         if self.architecture == "arm64":
             base = f"{base}-arm64"
         if self.accelerator == "neuronx":
-            base = f"{base.replace('-inference', '-inference-neuronx').replace('-training', '-training-neuronx')}"
+            base = base.replace("-inference", "-inference-neuronx").replace(
+                "-training", "-training-neuronx"
+            )
             if "neuronx" not in base:
                 base = f"{base}-neuronx"
         return base
 
     def get_image_tag(self) -> str:
         """Generate the image tag based on image properties."""
+        if self.image_uri_template:
+            # Extract tag from template
+            match = re.search(
+                r":([^<]+)$", self.image_uri_template.replace("<region>", "us-west-2")
+            )
+            if match:
+                return match.group(1)
+
         parts = [self.version]
         if self.accelerator == "neuronx":
             parts.append("neuronx")
@@ -122,7 +153,15 @@ class DLCImage:
 
     def get_full_uri(self, region: str = "us-west-2") -> str:
         """Get the full ECR URI for this image."""
-        account_id = REGION_ACCOUNT_MAP.get(region, AWS_DLC_ACCOUNT_ID)
+        if self.image_uri_template:
+            account_id = get_ecr_account_for_region(region)
+            suffix = ".amazonaws.com.cn" if region.startswith("cn-") else ".amazonaws.com"
+            # Replace <region> placeholder and update account ID
+            uri = self.image_uri_template.replace("<region>", region)
+            uri = re.sub(r"\d+\.dkr\.ecr\.", f"{account_id}.dkr.ecr.", uri)
+            return uri
+
+        account_id = get_ecr_account_for_region(region)
         suffix = ".amazonaws.com.cn" if region.startswith("cn-") else ".amazonaws.com"
         return f"{account_id}.dkr.ecr.{region}{suffix}/{self.get_repository_name()}:{self.get_image_tag()}"
 
@@ -145,444 +184,292 @@ class DLCImage:
 
 
 # =============================================================================
-# COMPREHENSIVE DLC IMAGE CATALOG
-# Updated: March 2026 from https://aws.github.io/deep-learning-containers/reference/available_images/
+# DYNAMIC FETCHING FROM GITHUB
 # =============================================================================
 
-DLC_IMAGES: List[DLCImage] = [
-    # -------------------------------------------------------------------------
-    # PyTorch Training Images
-    # -------------------------------------------------------------------------
-    DLCImage("pytorch", "2.9.0", "3.12", "gpu", "sagemaker", "training", cuda_version="13.0"),
-    DLCImage("pytorch", "2.9.0", "3.12", "cpu", "sagemaker", "training"),
-    DLCImage("pytorch", "2.9.0", "3.12", "gpu", "ec2", "training", cuda_version="13.0"),
-    DLCImage("pytorch", "2.9.0", "3.12", "cpu", "ec2", "training"),
-    DLCImage("pytorch", "2.8.0", "3.12", "gpu", "sagemaker", "training", cuda_version="12.9"),
-    DLCImage("pytorch", "2.8.0", "3.12", "cpu", "sagemaker", "training"),
-    DLCImage("pytorch", "2.8.0", "3.12", "gpu", "ec2", "training", cuda_version="12.9"),
-    DLCImage("pytorch", "2.8.0", "3.12", "cpu", "ec2", "training"),
-    DLCImage("pytorch", "2.7.1", "3.12", "gpu", "sagemaker", "training", cuda_version="12.8"),
-    DLCImage("pytorch", "2.7.1", "3.12", "cpu", "sagemaker", "training"),
-    DLCImage("pytorch", "2.7.1", "3.12", "gpu", "ec2", "training", cuda_version="12.8"),
-    DLCImage("pytorch", "2.7.1", "3.12", "cpu", "ec2", "training"),
-    # -------------------------------------------------------------------------
-    # PyTorch Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage("pytorch", "2.6.0", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.4"),
-    DLCImage("pytorch", "2.6.0", "3.12", "cpu", "sagemaker", "inference"),
-    DLCImage("pytorch", "2.6.0", "3.12", "gpu", "ec2", "inference", cuda_version="12.4"),
-    DLCImage("pytorch", "2.6.0", "3.12", "cpu", "ec2", "inference"),
-    # -------------------------------------------------------------------------
-    # PyTorch ARM64 Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "pytorch",
-        "2.7.0",
-        "3.12",
-        "gpu",
-        "ec2",
-        "training",
-        cuda_version="12.8",
-        architecture="arm64",
-    ),
-    DLCImage(
-        "pytorch",
-        "2.6.0",
-        "3.12",
-        "gpu",
-        "ec2",
-        "inference",
-        cuda_version="12.4",
-        architecture="arm64",
-    ),
-    DLCImage("pytorch", "2.6.0", "3.12", "cpu", "sagemaker", "inference", architecture="arm64"),
-    DLCImage("pytorch", "2.6.0", "3.12", "cpu", "ec2", "inference", architecture="arm64"),
-    # -------------------------------------------------------------------------
-    # TensorFlow Training Images
-    # -------------------------------------------------------------------------
-    DLCImage("tensorflow", "2.19.0", "3.12", "gpu", "sagemaker", "training", cuda_version="12.5"),
-    DLCImage("tensorflow", "2.19.0", "3.12", "cpu", "sagemaker", "training"),
-    # -------------------------------------------------------------------------
-    # TensorFlow Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage("tensorflow", "2.19.0", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.2"),
-    DLCImage("tensorflow", "2.19.0", "3.12", "cpu", "sagemaker", "inference"),
-    DLCImage("tensorflow", "2.19.0", "3.12", "cpu", "sagemaker", "inference", architecture="arm64"),
-    # -------------------------------------------------------------------------
-    # vLLM Images
-    # -------------------------------------------------------------------------
-    DLCImage("vllm", "0.15.1", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.9"),
-    DLCImage("vllm", "0.15.1", "3.12", "gpu", "ec2", "inference", cuda_version="12.9"),
-    DLCImage("vllm", "0.14.0", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.9"),
-    DLCImage("vllm", "0.14.0", "3.12", "gpu", "ec2", "inference", cuda_version="12.9"),
-    DLCImage("vllm", "0.13.0", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.9"),
-    DLCImage("vllm", "0.13.0", "3.12", "gpu", "ec2", "inference", cuda_version="12.9"),
-    DLCImage(
-        "vllm",
-        "0.10.2",
-        "3.12",
-        "gpu",
-        "ec2",
-        "inference",
-        cuda_version="12.9",
-        architecture="arm64",
-    ),
-    # -------------------------------------------------------------------------
-    # SGLang Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "sglang",
-        "0.5.8",
-        "3.12",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.9",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage(
-        "sglang",
-        "0.5.7",
-        "3.12",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.9",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage("sglang", "0.5.6", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.9"),
-    DLCImage("sglang", "0.5.5", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.9"),
-    # -------------------------------------------------------------------------
-    # PyTorch NeuronX Training Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "pytorch",
-        "2.9.0",
-        "3.12",
-        "neuronx",
-        "sagemaker",
-        "training",
-        sdk_version="2.28.0",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage(
-        "pytorch",
-        "2.9.0",
-        "3.12",
-        "neuronx",
-        "sagemaker",
-        "training",
-        sdk_version="2.27.1",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage("pytorch", "2.8.0", "3.11", "neuronx", "sagemaker", "training", sdk_version="2.26.1"),
-    DLCImage("pytorch", "2.7.0", "3.10", "neuronx", "sagemaker", "training", sdk_version="2.25.0"),
-    DLCImage("pytorch", "2.7.0", "3.10", "neuronx", "sagemaker", "training", sdk_version="2.24.1"),
-    DLCImage("pytorch", "2.6.0", "3.10", "neuronx", "sagemaker", "training", sdk_version="2.23.0"),
-    # -------------------------------------------------------------------------
-    # PyTorch NeuronX Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "pytorch",
-        "2.9.0",
-        "3.12",
-        "neuronx",
-        "sagemaker",
-        "inference",
-        sdk_version="2.28.0",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage(
-        "pytorch",
-        "2.9.0",
-        "3.12",
-        "neuronx",
-        "sagemaker",
-        "inference",
-        sdk_version="2.27.1",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage("pytorch", "2.8.0", "3.11", "neuronx", "sagemaker", "inference", sdk_version="2.26.1"),
-    DLCImage("pytorch", "2.7.0", "3.10", "neuronx", "sagemaker", "inference", sdk_version="2.25.0"),
-    DLCImage("pytorch", "2.7.0", "3.10", "neuronx", "sagemaker", "inference", sdk_version="2.24.1"),
-    DLCImage("pytorch", "2.6.0", "3.10", "neuronx", "sagemaker", "inference", sdk_version="2.23.0"),
-    # -------------------------------------------------------------------------
-    # HuggingFace PyTorch Training Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "huggingface-pytorch",
-        "2.5.1",
-        "3.11",
-        "gpu",
-        "sagemaker",
-        "training",
-        cuda_version="12.4",
-        transformers_version="4.49.0",
-        os_version="ubuntu22.04",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.1.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "training",
-        cuda_version="12.1",
-        transformers_version="4.36.0",
-        os_version="ubuntu20.04",
-    ),
-    # -------------------------------------------------------------------------
-    # HuggingFace PyTorch Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "huggingface-pytorch",
-        "2.6.0",
-        "3.12",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.4",
-        transformers_version="4.49.0",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.6.0",
-        "3.12",
-        "cpu",
-        "sagemaker",
-        "inference",
-        transformers_version="4.49.0",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.1.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="11.8",
-        transformers_version="4.37.0",
-        os_version="ubuntu20.04",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.1.0",
-        "3.10",
-        "cpu",
-        "sagemaker",
-        "inference",
-        transformers_version="4.37.0",
-    ),
-    # -------------------------------------------------------------------------
-    # HuggingFace NeuronX Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "huggingface-pytorch",
-        "2.8.0",
-        "3.10",
-        "neuronx",
-        "sagemaker",
-        "training",
-        sdk_version="2.26.0",
-        transformers_version="4.55.4",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.7.0",
-        "3.10",
-        "neuronx",
-        "sagemaker",
-        "training",
-        sdk_version="2.24.1",
-        transformers_version="4.51.0",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.8.0",
-        "3.10",
-        "neuronx",
-        "sagemaker",
-        "inference",
-        sdk_version="2.26.0",
-        transformers_version="4.55.4",
-    ),
-    DLCImage(
-        "huggingface-pytorch",
-        "2.7.1",
-        "3.10",
-        "neuronx",
-        "sagemaker",
-        "inference",
-        sdk_version="2.24.1",
-        transformers_version="4.51.3",
-    ),
-    # -------------------------------------------------------------------------
-    # HuggingFace vLLM NeuronX Inference
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "huggingface-vllm",
-        "0.11.0",
-        "3.10",
-        "neuronx",
-        "sagemaker",
-        "inference",
-        sdk_version="2.26.1",
-        optimum_version="0.4.5",
-    ),
-    # -------------------------------------------------------------------------
-    # AutoGluon Training Images
-    # -------------------------------------------------------------------------
-    DLCImage("autogluon", "1.5.0", "3.12", "gpu", "sagemaker", "training", cuda_version="12.6"),
-    DLCImage("autogluon", "1.5.0", "3.12", "cpu", "sagemaker", "training"),
-    DLCImage("autogluon", "1.4.0", "3.11", "gpu", "sagemaker", "training", cuda_version="12.4"),
-    DLCImage("autogluon", "1.4.0", "3.11", "cpu", "sagemaker", "training"),
-    # -------------------------------------------------------------------------
-    # AutoGluon Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage("autogluon", "1.5.0", "3.12", "gpu", "sagemaker", "inference", cuda_version="12.4"),
-    DLCImage("autogluon", "1.5.0", "3.12", "cpu", "sagemaker", "inference"),
-    DLCImage("autogluon", "1.4.0", "3.11", "gpu", "sagemaker", "inference", cuda_version="12.4"),
-    DLCImage("autogluon", "1.4.0", "3.11", "cpu", "sagemaker", "inference"),
-    # -------------------------------------------------------------------------
-    # DJL Inference Images
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "djl-inference",
-        "0.36.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi20.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.36.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi19.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.36.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi18.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.36.0",
-        "3.10",
-        "cpu",
-        "sagemaker",
-        "inference",
-        engine_version="cpu-full",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.35.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi17.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.34.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi16.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.33.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="lmi15.0.0",
-    ),
-    DLCImage(
-        "djl-inference",
-        "0.33.0",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="12.8",
-        engine_version="tensorrtllm0.21.0",
-    ),
-    # -------------------------------------------------------------------------
-    # StabilityAI PyTorch Inference
-    # -------------------------------------------------------------------------
-    DLCImage(
-        "stabilityai-pytorch",
-        "2.0.1",
-        "3.10",
-        "gpu",
-        "sagemaker",
-        "inference",
-        cuda_version="11.8",
-        os_version="ubuntu20.04",
-    ),
-    # -------------------------------------------------------------------------
-    # Base Images
-    # -------------------------------------------------------------------------
-    DLCImage("base", "13.0.2", "3.13", "gpu", "ec2", "training", cuda_version="13.0"),
-    DLCImage("base", "13.0.0", "3.12", "gpu", "ec2", "training", cuda_version="13.0"),
-    DLCImage("base", "12.9.1", "3.12", "gpu", "ec2", "training", cuda_version="12.9"),
-    DLCImage(
-        "base",
-        "12.8.1",
-        "3.12",
-        "gpu",
-        "ec2",
-        "training",
-        cuda_version="12.8",
-        os_version="ubuntu24.04",
-    ),
-    DLCImage("base", "12.8.0", "3.12", "gpu", "ec2", "training", cuda_version="12.8"),
-]
+
+def _fetch_dlc_page() -> str:
+    """Fetch the DLC available images page from GitHub."""
+    try:
+        with urlopen(DLC_IMAGES_URL, timeout=30) as response:
+            return response.read().decode("utf-8")
+    except URLError as e:
+        logger.warning(f"Failed to fetch DLC images page: {e}")
+        return ""
+    except Exception as e:
+        logger.warning(f"Error fetching DLC images: {e}")
+        return ""
+
+
+def _parse_image_uri(uri_template: str) -> Optional[DLCImage]:
+    """Parse an image URI template into a DLCImage object."""
+    # Example: 763104351884.dkr.ecr.<region>.amazonaws.com/pytorch-training:2.9.0-gpu-py312-cu130-ubuntu22.04-sagemaker
+
+    # Extract repository and tag
+    match = re.search(r"/([^:]+):(.+)$", uri_template)
+    if not match:
+        return None
+
+    repo_name = match.group(1)
+    tag = match.group(2)
+
+    # Parse repository name for framework and use_case
+    framework = repo_name
+    use_case = "training"
+    architecture = "x86_64"
+
+    if "-training" in repo_name:
+        use_case = "training"
+        framework = (
+            repo_name.replace("-training-neuronx", "")
+            .replace("-training-arm64", "")
+            .replace("-training", "")
+        )
+    elif "-inference" in repo_name:
+        use_case = "inference"
+        framework = (
+            repo_name.replace("-inference-neuronx", "")
+            .replace("-inference-arm64", "")
+            .replace("-inference", "")
+        )
+
+    if "-arm64" in repo_name:
+        architecture = "arm64"
+
+    # Parse tag for version, accelerator, python, cuda, etc.
+    # Examples:
+    # 2.9.0-gpu-py312-cu130-ubuntu22.04-sagemaker
+    # 2.9.0-cpu-py312-ubuntu22.04-ec2
+    # 2.9.0-neuronx-py312-sdk2.28.0-ubuntu24.04
+    # 0.15.1-gpu-py312-cu129-ubuntu22.04-sagemaker
+
+    version = ""
+    accelerator = "gpu"
+    python_version = "3.12"
+    cuda_version = None
+    sdk_version = None
+    os_version = "ubuntu22.04"
+    platform = "sagemaker"
+    transformers_version = None
+    optimum_version = None
+    engine_version = None
+
+    # Extract version (first part before -)
+    version_match = re.match(r"^([\d.]+)", tag)
+    if version_match:
+        version = version_match.group(1)
+
+    # Detect accelerator
+    if "-neuronx-" in tag or "neuronx" in repo_name:
+        accelerator = "neuronx"
+    elif "-cpu-" in tag:
+        accelerator = "cpu"
+    else:
+        accelerator = "gpu"
+
+    # Extract Python version
+    py_match = re.search(r"py(\d+)", tag)
+    if py_match:
+        py_num = py_match.group(1)
+        if len(py_num) >= 2:
+            python_version = f"{py_num[0]}.{py_num[1:]}"
+
+    # Extract CUDA version
+    cuda_match = re.search(r"cu(\d+)", tag)
+    if cuda_match:
+        cuda_num = cuda_match.group(1)
+        if len(cuda_num) >= 2:
+            cuda_version = f"{cuda_num[:-1]}.{cuda_num[-1]}"
+
+    # Extract SDK version (for NeuronX)
+    sdk_match = re.search(r"sdk([\d.]+)", tag)
+    if sdk_match:
+        sdk_version = sdk_match.group(1)
+
+    # Extract OS version
+    os_match = re.search(r"(ubuntu\d+\.\d+)", tag)
+    if os_match:
+        os_version = os_match.group(1)
+
+    # Extract platform
+    if "-sagemaker" in tag:
+        platform = "sagemaker"
+    elif "-ec2" in tag:
+        platform = "ec2"
+
+    # Extract transformers version (for HuggingFace)
+    tf_match = re.search(r"transformers([\d.]+)", tag)
+    if tf_match:
+        transformers_version = tf_match.group(1)
+
+    # Extract optimum version
+    opt_match = re.search(r"optimum([\d.]+)", tag)
+    if opt_match:
+        optimum_version = opt_match.group(1)
+
+    # Extract engine version (for DJL)
+    engine_match = re.search(r"(lmi[\d.]+|tensorrtllm[\d.]+|cpu-full)", tag)
+    if engine_match:
+        engine_version = engine_match.group(1)
+
+    # Handle special frameworks
+    if "huggingface-pytorch" in repo_name:
+        framework = "huggingface-pytorch"
+    elif "huggingface-vllm" in repo_name:
+        framework = "huggingface-vllm"
+    elif "huggingface-tensorflow" in repo_name:
+        framework = "huggingface-tensorflow"
+    elif "stabilityai" in repo_name:
+        framework = "stabilityai-pytorch"
+    elif "autogluon" in repo_name:
+        framework = "autogluon"
+    elif "djl-inference" in repo_name:
+        framework = "djl-inference"
+        use_case = "inference"
+    elif repo_name in ["vllm", "vllm-arm64"]:
+        framework = "vllm"
+        use_case = "inference"
+    elif repo_name == "sglang":
+        framework = "sglang"
+        use_case = "inference"
+    elif repo_name == "base":
+        framework = "base"
+        use_case = "training"
+
+    return DLCImage(
+        framework=framework,
+        version=version,
+        python_version=python_version,
+        accelerator=accelerator,
+        platform=platform,
+        use_case=use_case,
+        cuda_version=cuda_version,
+        sdk_version=sdk_version,
+        transformers_version=transformers_version,
+        optimum_version=optimum_version,
+        engine_version=engine_version,
+        os_version=os_version,
+        architecture=architecture,
+        image_uri_template=uri_template,
+    )
+
+
+def _parse_dlc_page(html: str) -> List[DLCImage]:
+    """Parse the DLC available images HTML page and extract image information."""
+    images = []
+
+    # The HTML has escaped characters: &lt;region&gt; instead of <region>
+    # Pattern: account.dkr.ecr.&lt;region&gt;.amazonaws.com/repo:tag
+    uri_pattern = r'(\d+\.dkr\.ecr\.&lt;region&gt;\.amazonaws\.com(?:\.cn)?/[^<\s"&]+:[^<\s"&]+)'
+
+    matches = re.findall(uri_pattern, html)
+    seen_uris = set()
+
+    for uri in matches:
+        # Convert escaped HTML back to normal
+        uri = uri.replace("&lt;", "<").replace("&gt;", ">")
+
+        if uri in seen_uris:
+            continue
+        seen_uris.add(uri)
+
+        image = _parse_image_uri(uri)
+        if image and image.version:
+            images.append(image)
+
+    return images
+
+
+def _parse_region_info(html: str) -> tuple:
+    """Parse region availability information from the HTML page."""
+    regions = {}
+    neuron_regions = []
+
+    # Pattern to find region rows in the table
+    # Looking for: region code, account ID, and neuron support
+    region_pattern = r"(\w{2}-\w+-\d+)[^✅❌]*?(✅|❌)[^✅❌]*?(✅|❌)[^<]*?(\d+)\.dkr\.ecr\."
+
+    for match in re.finditer(region_pattern, html):
+        region = match.group(1)
+        general_support = match.group(2) == "✅"
+        neuron_support = match.group(3) == "✅"
+        account_id = match.group(4)
+
+        if general_support:
+            regions[region] = account_id
+            if neuron_support:
+                neuron_regions.append(region)
+
+    return regions, neuron_regions
+
+
+def _refresh_cache() -> None:
+    """Refresh the image cache from the GitHub page."""
+    global _cache
+
+    html = _fetch_dlc_page()
+    if not html:
+        logger.warning("Failed to fetch DLC page, using cached data")
+        return
+
+    images = _parse_dlc_page(html)
+    regions, neuron_regions = _parse_region_info(html)
+
+    if images:
+        _cache["images"] = images
+        _cache["timestamp"] = time.time()
+        logger.info(f"Refreshed DLC cache with {len(images)} images")
+
+    if regions:
+        _cache["regions"] = regions
+        REGION_ACCOUNT_MAP.update(regions)
+
+    if neuron_regions:
+        _cache["neuron_regions"] = neuron_regions
+
+
+def _ensure_cache() -> None:
+    """Ensure the cache is populated and fresh."""
+    global _cache
+
+    current_time = time.time()
+    if not _cache["images"] or (current_time - _cache["timestamp"]) > CACHE_TTL_SECONDS:
+        _refresh_cache()
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# PUBLIC API FUNCTIONS
 # =============================================================================
+
+
+def get_dlc_images() -> List[DLCImage]:
+    """Get all DLC images, fetching from GitHub if needed."""
+    _ensure_cache()
+    return _cache["images"]
 
 
 def get_available_frameworks() -> List[str]:
     """Get list of all available frameworks."""
-    return sorted(set(img.framework for img in DLC_IMAGES))
+    images = get_dlc_images()
+    return sorted(set(img.framework for img in images))
 
 
 def get_available_versions(framework: str) -> List[str]:
     """Get available versions for a framework."""
-    return sorted(
-        set(img.version for img in DLC_IMAGES if img.framework == framework), reverse=True
-    )
+    images = get_dlc_images()
+    return sorted(set(img.version for img in images if img.framework == framework), reverse=True)
 
 
 def get_available_platforms() -> List[str]:
     """Get list of all available platforms."""
-    return sorted(set(img.platform for img in DLC_IMAGES))
+    images = get_dlc_images()
+    return sorted(set(img.platform for img in images))
 
 
 def get_available_accelerators() -> List[str]:
     """Get list of all available accelerators."""
-    return sorted(set(img.accelerator for img in DLC_IMAGES))
+    images = get_dlc_images()
+    return sorted(set(img.accelerator for img in images))
 
 
 def filter_images(
@@ -595,7 +482,8 @@ def filter_images(
     architecture: Optional[str] = None,
 ) -> List[DLCImage]:
     """Filter DLC images based on criteria."""
-    results = DLC_IMAGES
+    results = get_dlc_images()
+
     if framework:
         results = [img for img in results if framework.lower() in img.framework.lower()]
     if version:
@@ -610,6 +498,7 @@ def filter_images(
         results = [img for img in results if img.use_case == use_case.lower()]
     if architecture:
         results = [img for img in results if img.architecture == architecture.lower()]
+
     return results
 
 
@@ -706,9 +595,28 @@ def get_recommended_image_for_model(
 
 def get_ecr_account_for_region(region: str) -> str:
     """Get the ECR account ID for a specific region."""
+    _ensure_cache()
+    if _cache["regions"]:
+        return _cache["regions"].get(region, AWS_DLC_ACCOUNT_ID)
     return REGION_ACCOUNT_MAP.get(region, AWS_DLC_ACCOUNT_ID)
 
 
 def is_neuron_supported_in_region(region: str) -> bool:
     """Check if Neuron images are available in a region."""
+    _ensure_cache()
+    if _cache["neuron_regions"]:
+        return region in _cache["neuron_regions"]
     return region in NEURON_SUPPORTED_REGIONS
+
+
+def refresh_images() -> Dict:
+    """Force refresh the image cache and return status."""
+    global _cache
+    _cache["timestamp"] = 0  # Force refresh
+    _ensure_cache()
+    return {
+        "success": True,
+        "images_count": len(_cache["images"]),
+        "regions_count": len(_cache.get("regions", {})),
+        "neuron_regions_count": len(_cache.get("neuron_regions", [])),
+    }
