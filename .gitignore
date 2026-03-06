@@ -86,3 +86,7 @@ var/
 *.tar.gz
 model_artifacts/
 
+# Accidental venv folders
+test/
+aws_samples/dlc_mcp_server/dlc/
+
