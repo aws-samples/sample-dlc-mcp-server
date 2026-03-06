@@ -43,21 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BaseImageInfo:
-    """Data class for base image information."""
-
-    framework: str
-    version: str
-    use_case: str
-    device_type: str
-    python_version: str
-    os: str
-    platform: str
-    uri: str
-    cuda_version: Optional[str] = None
-
-
-@dataclass
 class DockerfileConfig:
     """Configuration for Dockerfile creation."""
 
@@ -78,119 +63,6 @@ class BuildConfig:
     dockerfile_content: str
     push_to_ecr: bool
     region: Optional[str]
-
-
-class BaseImageRegistry:
-    """Registry for DLC base images."""
-
-    @staticmethod
-    def get_base_images() -> List[BaseImageInfo]:
-        """Get list of available base images."""
-        return [
-            # PyTorch Images
-            BaseImageInfo(
-                framework="pytorch",
-                version="2.6.0",
-                use_case="training",
-                device_type="gpu",
-                python_version="3.12",
-                cuda_version="12.6",
-                os="ubuntu22.04",
-                platform="ec2",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.6.0-gpu-py312-cu126-ubuntu22.04-ec2",
-            ),
-            BaseImageInfo(
-                framework="pytorch",
-                version="2.6.0",
-                use_case="training",
-                device_type="gpu",
-                python_version="3.12",
-                cuda_version="12.6",
-                os="ubuntu22.04",
-                platform="sagemaker",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.6.0-gpu-py312-cu126-ubuntu22.04-sagemaker",
-            ),
-            BaseImageInfo(
-                framework="pytorch",
-                version="2.6.0",
-                use_case="inference",
-                device_type="cpu",
-                python_version="3.12",
-                os="ubuntu22.04",
-                platform="ec2",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.6.0-cpu-py312-ubuntu22.04-ec2",
-            ),
-            BaseImageInfo(
-                framework="pytorch",
-                version="2.6.0",
-                use_case="inference",
-                device_type="gpu",
-                python_version="3.12",
-                cuda_version="12.4",
-                os="ubuntu22.04",
-                platform="sagemaker",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.6.0-gpu-py312-cu124-ubuntu22.04-sagemaker",
-            ),
-            # TensorFlow Images
-            BaseImageInfo(
-                framework="tensorflow",
-                version="2.18.0",
-                use_case="training",
-                device_type="gpu",
-                python_version="3.10",
-                cuda_version="12.5",
-                os="ubuntu22.04",
-                platform="ec2",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/tensorflow-training:2.18.0-gpu-py310-cu125-ubuntu22.04-ec2",
-            ),
-            BaseImageInfo(
-                framework="tensorflow",
-                version="2.18.0",
-                use_case="inference",
-                device_type="cpu",
-                python_version="3.10",
-                os="ubuntu20.04",
-                platform="sagemaker",
-                uri=f"{AWS_DLC_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/tensorflow-inference:2.18.0-cpu-py310-ubuntu20.04-sagemaker",
-            ),
-        ]
-
-
-class ImageFilter:
-    """Utility class for filtering base images."""
-
-    @staticmethod
-    def apply_filters(
-        images: List[BaseImageInfo],
-        framework: Optional[str] = None,
-        use_case: Optional[str] = None,
-        device_type: Optional[str] = None,
-        platform: Optional[str] = None,
-    ) -> List[BaseImageInfo]:
-        """Apply filters to image list."""
-        filtered_images = images
-
-        if framework:
-            filtered_images = [
-                img for img in filtered_images if img.framework.lower() == framework.lower()
-            ]
-
-        if use_case:
-            filtered_images = [
-                img for img in filtered_images if img.use_case.lower() == use_case.lower()
-            ]
-
-        if device_type:
-            filtered_images = [
-                img for img in filtered_images if img.device_type.lower() == device_type.lower()
-            ]
-
-        if platform:
-            filtered_images = [
-                img for img in filtered_images if img.platform.lower() == platform.lower()
-            ]
-
-        return filtered_images
 
 
 class DockerfileBuilder:
@@ -374,19 +246,27 @@ def list_base_images(
     """
     List available base images for Deep Learning Containers.
 
+    Uses the comprehensive DLC_IMAGES catalog from dlc_images.py which includes
+    all frameworks: PyTorch, TensorFlow, vLLM, SGLang, HuggingFace, AutoGluon, DJL, etc.
+
     Args:
-        framework: Framework filter (pytorch, tensorflow, etc.)
+        framework: Framework filter (pytorch, tensorflow, vllm, sglang, huggingface-pytorch, etc.)
         use_case: Use case filter (training, inference)
-        device_type: Device type filter (cpu, gpu)
+        device_type: Device type filter (cpu, gpu, neuronx)
         platform: Platform filter (ec2, sagemaker)
 
     Returns:
         Dict containing list of available base images
     """
+    from aws_samples.dlc_mcp_server.utils.dlc_images import filter_images
+
     try:
-        base_images = BaseImageRegistry.get_base_images()
-        filtered_images = ImageFilter.apply_filters(
-            base_images, framework, use_case, device_type, platform
+        # Use the comprehensive DLC_IMAGES catalog via filter_images
+        filtered_images = filter_images(
+            framework=framework,
+            use_case=use_case,
+            accelerator=device_type,  # device_type maps to accelerator in dlc_images
+            platform=platform,
         )
 
         # Convert to dict format for JSON serialization
@@ -395,12 +275,12 @@ def list_base_images(
                 "framework": img.framework,
                 "version": img.version,
                 "use_case": img.use_case,
-                "device_type": img.device_type,
+                "device_type": img.accelerator,
                 "python_version": img.python_version,
                 "cuda_version": img.cuda_version,
-                "os": img.os,
+                "os": img.os_version,
                 "platform": img.platform,
-                "uri": img.uri,
+                "uri": img.get_full_uri("us-west-2"),
             }
             for img in filtered_images
         ]
@@ -487,19 +367,10 @@ def build_custom_dlc_image(
 
 
 def register_module(mcp: FastMCP) -> None:
-    """Register the image building module with the MCP server."""
+    """Register the image building module with the MCP server.
 
-    @mcp.tool(
-        name="list_base_images",
-        description="List available base images for Deep Learning Containers",
-    )
-    async def mcp_list_base_images(
-        framework: Optional[str] = None,
-        use_case: Optional[str] = None,
-        device_type: Optional[str] = None,
-        platform: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return list_base_images(framework, use_case, device_type, platform)
+    Note: list_base_images removed - use search_dlc_images from dlc_discovery module instead.
+    """
 
     @mcp.tool(
         name="create_custom_dockerfile",

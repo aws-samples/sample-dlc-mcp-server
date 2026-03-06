@@ -36,6 +36,8 @@ from aws_samples.dlc_mcp_server.modules import (
     upgrade,
     best_practices,
     containers,
+    dlc_discovery,
+    instance_advisor,
 )
 from aws_samples.dlc_mcp_server.utils.config import get_config
 from aws_samples.dlc_mcp_server.utils.security import (
@@ -152,6 +154,8 @@ troubleshooting.register_module(mcp)
 upgrade.register_module(mcp)
 best_practices.register_module(mcp)
 containers.register_module(mcp)
+dlc_discovery.register_module(mcp)
+instance_advisor.register_module(mcp)
 
 
 def main() -> None:

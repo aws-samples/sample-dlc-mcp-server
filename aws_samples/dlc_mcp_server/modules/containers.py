@@ -31,11 +31,6 @@ from docker import DockerClient
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from aws_samples.dlc_mcp_server.utils.aws_utils import (
-    get_ecr_login_command,
-    filter_dlc_images,
-    list_dlc_repositories,
-)
 from pydantic import Field
 
 
@@ -374,137 +369,6 @@ def check_aws_configuration() -> Dict[str, Any]:
         return {"success": False, "error": f"AWS configuration check failed: {str(e)}"}
 
 
-async def list_available_dlc_images(
-    framework: Optional[str] = None,
-    python_version: Optional[str] = None,
-    cuda_version: Optional[str] = None,
-    region: Optional[str] = None,
-    repository_name: Optional[List[str]] = [],
-) -> Dict[str, Any]:
-    """
-    List available DLC images with automatic ECR setup and AWS configuration check.
-
-    Args:
-        framework: Filter by ML framework (pytorch, tensorflow, etc.)
-        python_version: Filter by Python version (3.8, 3.9, 3.10, etc.)
-        cuda_version: Filter by CUDA version (11.8, 12.1, etc.)
-        region: AWS region (defaults to configured region)
-
-    Returns:
-        Dict containing filtered DLC images or error information
-    """
-    try:
-        if framework not in SUPPORTED_IMAGES:
-            supported_frameworks = ", ".join(SUPPORTED_IMAGES.keys())
-            raise ValueError(
-                f"Framework {framework} not supported. Supported frameworks: {supported_frameworks}"
-            )
-
-        # Step 1: Check AWS configuration
-        logger.info("Checking AWS configuration...")
-        aws_check = check_aws_configuration()
-        if not aws_check["success"]:
-            return {
-                "success": False,
-                "error": aws_check["error"],
-                "setup_instructions": aws_check.get("setup_instructions", []),
-                "action_required": "Please configure AWS CLI first",
-            }
-
-        # Step 2: Use region from AWS config if not provided
-        if not region:
-            region = aws_check.get("region", DEFAULT_REGION)
-
-        logger.info(f"Using AWS region: {region}")
-
-        # Step 3: Setup ECR authentication automatically
-        logger.info("Setting up ECR authentication...")
-        ecr_setup = get_ecr_login_command(prod=True, region=region)
-        if not ecr_setup["success"]:
-            return {
-                "success": False,
-                "error": f"Failed to setup ECR authentication: {ecr_setup['error']}",
-                "troubleshooting": [
-                    "Check your AWS permissions for ECR access",
-                    "Ensure you have the correct AWS region configured",
-                    "Verify Docker is running on your system",
-                ],
-            }
-
-        # Step 4: List DLC repositories
-        logger.info("Fetching DLC repositories...")
-        repositories = list_dlc_repositories(region)
-        if not repositories:
-            return {
-                "success": False,
-                "error": "No DLC repositories found or failed to access repositories",
-                "troubleshooting": [
-                    "Check your internet connection",
-                    "Verify ECR permissions in your AWS account",
-                    f"Ensure region {region} has DLC repositories available",
-                ],
-            }
-
-        # Step 5: Filter DLC images based on criteria
-        logger.info(
-            f"Filtering images with criteria - Framework: {framework}, Python: {python_version}, CUDA: {cuda_version}"
-        )
-        images = filter_dlc_images(repositories, framework, python_version, cuda_version)
-        filtered_images = []
-        for img in images:
-            img_version, img_cuda_version = extract_info_from_image_uri(img["image_uri"])
-            if is_version_supported(framework, img_version, img_cuda_version):
-                if not python_version or python_version in img["image_uri"]:
-                    filtered_images.append(img)
-
-        # Step 6: Provide helpful suggestions if no images found
-        if not filtered_images:
-            suggestions = []
-            if framework:
-                suggestions.append(f"Try without framework filter (currently: {framework})")
-            if python_version:
-                suggestions.append(
-                    f"Try without Python version filter (currently: {python_version})"
-                )
-            if cuda_version:
-                suggestions.append(f"Try without CUDA version filter (currently: {cuda_version})")
-
-            return {
-                "success": True,
-                "images": [],
-                "message": "No images found matching your criteria",
-                "suggestions": suggestions or ["Try with broader search criteria"],
-                "total_available_images": len(
-                    [img for repo in repositories for img in repo.get("images", [])]
-                ),
-                "region": region,
-            }
-
-        return {
-            "success": True,
-            "images": filtered_images,
-            "region": region,
-            "total_images": len(filtered_images),
-            "applied_filters": {
-                "framework": framework,
-                "python_version": python_version,
-                "cuda_version": cuda_version,
-            },
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to list available DLC images: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "troubleshooting": [
-                "Check your AWS configuration",
-                "Verify your network connection",
-                "Ensure Docker is running",
-            ],
-        }
-
-
 # Main module functions
 def setup_dlc_environment() -> Dict[str, Any]:
     """
@@ -556,11 +420,6 @@ def run_dlc_container(
         return {"success": False, "error": str(e)}
 
 
-def get_repo_name(framework: str, repo_type: str) -> List[str]:
-    """Construct repository name from framework and type."""
-    return [f"{framework}-{repo_type}"]
-
-
 def setup_distributed_training(
     image_uri: str,
     num_nodes: int,
@@ -589,92 +448,6 @@ def register_module(mcp: FastMCP) -> None:
     async def mcp_check_aws_config() -> Dict[str, Any]:
         return check_aws_configuration()
 
-    @mcp.tool(
-        name="setup_ecr_prod",
-        description="Authenticate with ECR to access latest DLC images from production account (763104351884)",
-    )
-    async def mcp_setup_ecr_prod(region: str = DEFAULT_REGION) -> Dict[str, Any]:
-        return get_ecr_login_command(prod=True, region=region)
-
-    @mcp.tool(
-        name="list_dlc_repos",
-        description="List available DLC repositories and Images (Requires ECR authentication)",
-    )
-    async def mcp_list_dlc_repos(
-        framework: Optional[str] = Field(
-            None,
-            description="ML framework (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
-        ),
-        repo_type: Optional[str] = Field(None, description="Repository type (training, inference)"),
-        region: str = DEFAULT_REGION,
-    ) -> List[Dict[str, Any]]:
-        if framework:
-            if framework not in FRAMEWORK_TYPES:
-                raise ValueError(
-                    f"Invalid framework. Choose from: {', '.join(FRAMEWORK_TYPES.keys())}"
-                )
-
-            if repo_type:
-                if repo_type not in FRAMEWORK_TYPES[framework]:
-                    raise ValueError(
-                        f"Invalid type for {framework}. Choose from: {', '.join(FRAMEWORK_TYPES[framework])}"
-                    )
-
-                repository_name = get_repo_name(framework, repo_type)
-                return list_dlc_repositories(region, repository_name)
-            else:
-                # If only framework is specified, list all repo types for that framework
-                results = []
-                for rt in FRAMEWORK_TYPES[framework]:
-                    repository_name = get_repo_name(framework, rt)
-                    results.extend(list_dlc_repositories(region, repository_name))
-                return results
-        else:
-            # If neither framework nor type specified, prompt user
-            raise ValueError(
-                "Please specify framework and repository type.\n"
-                f"Available frameworks: {', '.join(FRAMEWORK_TYPES.keys())}\n"
-                "Repository types: training, inference (availability depends on framework)"
-            )
-
-    @mcp.tool(
-        name="list_dlc_images",
-        description="List and filter available DLC images with automatic AWS setup and ECR authentication, Make sure you use list_dlc_repos to fetch from repository",
-    )
-    async def mcp_list_dlc_images(
-        framework: Optional[str] = Field(
-            None,
-            description="Filter by ML framework (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
-        ),
-        repo_type: Optional[str] = Field(None, description="Repository type (training, inference)"),
-        python_version: Optional[str] = Field(
-            None, description="Filter by Python version (3.10, 3.11, 3.12)"
-        ),
-        cuda_version: Optional[str] = Field(None, description="Filter by CUDA version (2.8, 12.6)"),
-        region: Optional[str] = Field(
-            None, description="AWS region (defaults to configured region)"
-        ),
-    ) -> Dict[str, Any]:
-        if not framework or not repo_type:
-            raise ValueError(
-                "Please specify both framework and repository type.\n"
-                f"Available frameworks: {', '.join(FRAMEWORK_TYPES.keys())}\n"
-                "Repository types: training, inference (availability depends on framework)"
-            )
-
-        if framework not in FRAMEWORK_TYPES:
-            raise ValueError(f"Invalid framework. Choose from: {', '.join(FRAMEWORK_TYPES.keys())}")
-
-        if repo_type not in FRAMEWORK_TYPES[framework]:
-            raise ValueError(
-                f"Invalid type for {framework}. Choose from: {', '.join(FRAMEWORK_TYPES[framework])}"
-            )
-
-        repository_name = get_repo_name(framework, repo_type)
-        return await list_available_dlc_images(
-            framework, python_version, cuda_version, region, repository_name
-        )
-
     @mcp.tool(name="run_dlc_container", description="Run a DLC container for training or inference")
     async def mcp_run_container(
         image_uri: str = Field(..., description="DLC image URI"),
@@ -699,13 +472,12 @@ def register_module(mcp: FastMCP) -> None:
     def list_images_prompt():
         """List available DLC images with automatic setup"""
         return [
-            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "What framework are you interested in? (pytorch, tensorflow, vllm, sglang, huggingface, autogluon, djl)",
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
             "Any specific Python version? (e.g., 3.11, 3.12)",
             "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
         ]
 
     @mcp.prompt("show pytorch images")
@@ -716,8 +488,7 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need CPU or GPU support?",
             "Any specific Python version? (e.g., 3.11, 3.12)",
             "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
         ]
 
     @mcp.prompt("show tensorflow images")
@@ -728,19 +499,18 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need CPU or GPU support?",
             "Any specific Python version? (e.g., 3.11, 3.12)",
             "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
-            "list_dlc_images",
+            "search_dlc_images",
         ]
 
     @mcp.prompt("list gpu images")
     def gpu_images_prompt():
         """List GPU-enabled DLC images"""
         return [
-            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "What framework are you interested in? (pytorch, tensorflow, vllm, sglang, huggingface, autogluon, djl)",
             "Do you need a training or inference image?",
             "Any specific Python version? (e.g., 3.11, 3.12)",
             "Any specific CUDA version for GPU? (e.g., 12.8, 12.6)",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
         ]
 
     @mcp.prompt("run container")
@@ -752,7 +522,6 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need GPU support? (yes/no)",
             "Any specific command to run in the container?",
             "run_dlc_container",
-            "list_dlc_repos",
         ]
 
     @mcp.prompt("distributed training")
@@ -770,11 +539,10 @@ def register_module(mcp: FastMCP) -> None:
     def find_images_prompt():
         """Find and list DLC images"""
         return [
-            "What framework are you interested in? (pytorch, tensorflow, mxnet, huggingface, autogluon, stabilityai, djl)",
+            "What framework are you interested in? (pytorch, tensorflow, vllm, sglang, huggingface, autogluon, djl)",
             "Do you need a training or inference image?",
             "Do you need CPU or GPU support?",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
         ]
 
     @mcp.prompt("prepare training")
@@ -784,8 +552,7 @@ def register_module(mcp: FastMCP) -> None:
             "What framework are you using for training?",
             "Do you need GPU support?",
             "Any specific Python or CUDA version?",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
             "What's the full image URI you want to use for training?",
             "What name would you like to give to the training container?",
             "Any specific command to run for training?",
@@ -802,6 +569,5 @@ def register_module(mcp: FastMCP) -> None:
             "Do you need CPU or GPU support?",
             "Any specific Python version?",
             "Any specific CUDA version for GPU?",
-            "list_dlc_images",
-            "list_dlc_repos",
+            "search_dlc_images",
         ]

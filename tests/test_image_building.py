@@ -29,7 +29,7 @@ from aws_samples.dlc_mcp_server.modules.image_building import (
     build_custom_dlc_image,
 )
 
-from aws_samples.dlc_mcp_server.modules.containers import list_available_dlc_images
+from aws_samples.dlc_mcp_server.modules.dlc_discovery import search_dlc_images
 
 
 class TestImageBuilding(unittest.TestCase):
@@ -40,17 +40,30 @@ class TestImageBuilding(unittest.TestCase):
         result = list_base_images()
         self.assertIn("images", result)
         self.assertIsInstance(result["images"], list)
+        # Should have many images from the comprehensive catalog
+        self.assertGreater(len(result["images"]), 10)
 
-        # Test with filters
+        # Test with filters - note: filter uses substring matching
+        # so "pytorch" matches both "pytorch" and "huggingface-pytorch"
         result = list_base_images(framework="pytorch", use_case="training")
         self.assertIn("images", result)
         for image in result["images"]:
-            self.assertEqual(image["framework"], "pytorch")
+            self.assertIn("pytorch", image["framework"].lower())
             self.assertEqual(image["use_case"], "training")
 
+        # Test vLLM images specifically
+        result = list_base_images(framework="vllm")
+        self.assertIn("images", result)
+        self.assertGreater(len(result["images"]), 0)
+        for image in result["images"]:
+            self.assertIn("vllm", image["framework"].lower())
+
     def test_dlc_images(self):
-        result = list_available_dlc_images()
-        print(result)
+        """Test searching DLC images from static catalog."""
+        result = search_dlc_images(framework="pytorch")
+        self.assertTrue(result["success"])
+        self.assertIn("images", result)
+        self.assertGreater(len(result["images"]), 0)
 
     def test_create_custom_dockerfile(self):
         """Test creating a custom Dockerfile."""
@@ -93,8 +106,11 @@ class TestImageBuilding(unittest.TestCase):
     @patch("aws_samples.dlc_mcp_server.modules.image_building.pull_image")
     @patch("aws_samples.dlc_mcp_server.modules.image_building.build_image")
     @patch("aws_samples.dlc_mcp_server.modules.image_building.create_ecr_repository")
+    @patch("aws_samples.dlc_mcp_server.modules.image_building.get_ecr_login_command")
     @patch("aws_samples.dlc_mcp_server.modules.image_building.push_image")
-    def test_build_custom_dlc_image(self, mock_push, mock_create_repo, mock_build, mock_pull):
+    def test_build_custom_dlc_image(
+        self, mock_push, mock_login, mock_create_repo, mock_build, mock_pull
+    ):
         """Test building a custom DLC image."""
         # Mock successful responses
         mock_pull.return_value = {"success": True, "image_id": "sha256:123"}
@@ -106,6 +122,10 @@ class TestImageBuilding(unittest.TestCase):
         mock_create_repo.return_value = {
             "success": True,
             "repository_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/test-repo",
+        }
+        mock_login.return_value = {
+            "success": True,
+            "endpoint": "https://123456789012.dkr.ecr.us-east-1.amazonaws.com",
         }
         mock_push.return_value = {"success": True, "logs": ["Pushing..."]}
 

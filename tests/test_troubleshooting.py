@@ -1,103 +1,139 @@
 ###
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify,
-# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-# permit persons to whom the Software is furnished to do so.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-# Copyright Amazon.com, Inc. and its affiliates. All Rights Reserved.
-#   SPDX-License-Identifier: MIT
 ######
 
 """Tests for the troubleshooting module."""
 
 import unittest
+import asyncio
 
 from aws_samples.dlc_mcp_server.modules.troubleshooting import (
-    diagnose_common_issues,
+    analyze_error,
     get_framework_compatibility_info,
-    get_performance_optimization_tips
+    _extract_context,
+    _categorize_error,
+    _build_search_query,
+    ErrorCategory,
+    DLC_RESOLVER_GROUPS,
 )
 
+# Note: get_performance_optimization_tips removed - use get_framework_specific_best_practices from best_practices module
 
-class TestTroubleshooting(unittest.TestCase):
-    """Test cases for the troubleshooting module."""
 
-    def test_diagnose_common_issues(self):
-        """Test diagnosing common issues."""
-        # Test CUDA out of memory error
-        result = diagnose_common_issues("CUDA out of memory")
-        self.assertTrue(result["matched"])
-        self.assertIn("matches", result)
-        self.assertTrue(any("CUDA out of memory" in match["diagnosis"] for match in result["matches"]))
-        
-        # Test with framework-specific error
-        result = diagnose_common_issues(
-            "InvalidArgumentError: Invalid argument",
-            framework="tensorflow",
-            use_case="training"
-        )
-        self.assertTrue(result["matched"])
-        self.assertIn("matches", result)
-        
-        # Test with unknown error
-        result = diagnose_common_issues("This is a completely unknown error")
-        self.assertFalse(result["matched"])
-        self.assertIn("general_recommendations", result)
+class TestErrorAnalysis(unittest.TestCase):
+    """Test cases for error analysis functions."""
 
-    def test_get_framework_compatibility_info(self):
-        """Test getting framework compatibility information."""
-        # Test valid framework and version
+    def test_extract_context_cuda_oom(self):
+        """Test context extraction from CUDA OOM error."""
+        error_log = """
+        RuntimeError: CUDA out of memory. Tried to allocate 2.00 GiB 
+        (GPU 0; 15.78 GiB total capacity; 14.23 GiB already allocated)
+        batch_size=32
+        """
+        context = _extract_context(error_log)
+        self.assertIsNotNone(context.gpu_memory_used)
+        self.assertEqual(context.batch_size, 32)
+
+    def test_extract_context_import_error(self):
+        """Test context extraction from import error."""
+        error_log = "ModuleNotFoundError: No module named 'transformers'"
+        context = _extract_context(error_log)
+        self.assertIn("ModuleNotFoundError", context.key_error_message)
+
+    def test_categorize_error_oom(self):
+        """Test error categorization for OOM."""
+        categories = _categorize_error("CUDA out of memory. Tried to allocate 2GB")
+        self.assertIn(ErrorCategory.CUDA_OOM, categories)
+
+    def test_categorize_error_import(self):
+        """Test error categorization for import error."""
+        categories = _categorize_error("ModuleNotFoundError: No module named 'torch'")
+        self.assertIn(ErrorCategory.IMPORT_ERROR, categories)
+
+    def test_categorize_error_shape(self):
+        """Test error categorization for shape mismatch."""
+        categories = _categorize_error("RuntimeError: shape mismatch, expected [32, 768]")
+        self.assertIn(ErrorCategory.SHAPE_MISMATCH, categories)
+
+    def test_categorize_error_distributed(self):
+        """Test error categorization for distributed training."""
+        categories = _categorize_error("NCCL error: unhandled system error, rank 0")
+        self.assertIn(ErrorCategory.DISTRIBUTED, categories)
+
+    def test_build_search_query(self):
+        """Test search query building."""
+        query = _build_search_query("CUDA out of memory", [ErrorCategory.CUDA_OOM])
+        self.assertIn("cuda out of memory", query.lower())
+
+
+class TestAnalyzeError(unittest.TestCase):
+    """Test cases for the analyze_error function."""
+
+    def test_analyze_cuda_oom(self):
+        """Test analysis of CUDA OOM error."""
+        error_log = """
+        torch.cuda.OutOfMemoryError: CUDA out of memory. 
+        Tried to allocate 4.00 GiB (GPU 0; 24.00 GiB total capacity)
+        """
+        result = asyncio.run(analyze_error(error_log, framework="pytorch"))
+
+        self.assertTrue(result["success"])
+        self.assertIn("cuda out of memory", result["error_categories"])
+        self.assertIn("resolution", result)
+
+    def test_analyze_import_error(self):
+        """Test analysis of import error."""
+        error_log = "ModuleNotFoundError: No module named 'bitsandbytes'"
+        result = asyncio.run(analyze_error(error_log))
+
+        self.assertTrue(result["success"])
+        self.assertIn("import error module not found", result["error_categories"])
+        self.assertTrue(any("pip" in step.lower() for step in result["resolution"]["steps"]))
+
+    def test_analyze_with_framework(self):
+        """Test analysis with framework specified."""
+        result = asyncio.run(analyze_error("CUDA error", framework="pytorch"))
+        self.assertEqual(result["extracted_context"]["framework"], "pytorch")
+
+
+class TestFrameworkCompatibility(unittest.TestCase):
+    """Test cases for framework compatibility info."""
+
+    def test_pytorch_compatibility(self):
+        """Test PyTorch compatibility info."""
         result = get_framework_compatibility_info("pytorch", "2.6.0")
-        self.assertEqual(result["framework"], "pytorch")
-        self.assertEqual(result["version"], "2.6.0")
-        self.assertIn("compatibility", result)
-        self.assertIn("python_versions", result["compatibility"])
+        self.assertTrue(result["success"])
         self.assertIn("cuda_versions", result["compatibility"])
-        
-        # Test invalid framework
-        result = get_framework_compatibility_info("invalid_framework", "1.0.0")
-        self.assertIn("error", result)
-        self.assertIn("available_frameworks", result)
-        
-        # Test invalid version
-        result = get_framework_compatibility_info("pytorch", "999.0.0")
-        self.assertIn("error", result)
-        self.assertIn("available_versions", result)
 
-    def test_get_performance_optimization_tips(self):
-        """Test getting performance optimization tips."""
-        # Test valid parameters
-        result = get_performance_optimization_tips("pytorch", "training", "gpu")
-        self.assertEqual(result["framework"], "pytorch")
-        self.assertEqual(result["use_case"], "training")
-        self.assertEqual(result["device_type"], "gpu")
-        self.assertIn("common_tips", result)
-        self.assertIn("specific_tips", result)
-        
-        # Test invalid framework
-        result = get_performance_optimization_tips("invalid_framework", "training", "gpu")
-        self.assertIn("error", result)
-        self.assertIn("available_frameworks", result)
-        
-        # Test invalid use case
-        result = get_performance_optimization_tips("pytorch", "invalid_use_case", "gpu")
-        self.assertIn("error", result)
-        self.assertIn("available_use_cases", result)
-        
-        # Test invalid device type
-        result = get_performance_optimization_tips("pytorch", "training", "invalid_device")
-        self.assertIn("error", result)
-        self.assertIn("available_device_types", result)
+    def test_tensorflow_compatibility(self):
+        """Test TensorFlow compatibility info."""
+        result = get_framework_compatibility_info("tensorflow", "2.18.0")
+        self.assertTrue(result["success"])
+
+    def test_unknown_framework(self):
+        """Test unknown framework handling."""
+        result = get_framework_compatibility_info("unknown", "1.0")
+        self.assertFalse(result["success"])
+
+    def test_unknown_version(self):
+        """Test unknown version handling."""
+        result = get_framework_compatibility_info("pytorch", "0.0.1")
+        self.assertFalse(result["success"])
+
+
+# TestPerformanceTips removed - functionality moved to best_practices module
+# Use get_framework_specific_best_practices instead
+
+
+class TestResolverGroups(unittest.TestCase):
+    """Test resolver groups configuration."""
+
+    def test_resolver_groups_defined(self):
+        """Test that DLC resolver groups are defined."""
+        self.assertGreater(len(DLC_RESOLVER_GROUPS), 0)
+        self.assertIn("DLC Customer Issues", DLC_RESOLVER_GROUPS)
+        self.assertIn("DLC General", DLC_RESOLVER_GROUPS)
 
 
 if __name__ == "__main__":
