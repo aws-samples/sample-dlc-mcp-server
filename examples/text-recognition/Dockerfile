@@ -31,7 +31,6 @@ RUN pip install --no-cache-dir \
     transformers \
     datasets \
     accelerate \
-    torch-audio \
     torchaudio \
     matplotlib \
     numpy \
